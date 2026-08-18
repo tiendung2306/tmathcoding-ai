@@ -1,0 +1,35 @@
+import axios from 'axios';
+import {
+  SkillTreeResponseData,
+  CodeDoctorResponseData,
+  ClassHeatmapResponseData
+} from '../types';
+
+const API_BASE_URL = '/api/v1';
+
+export const fetchSkillTree = async (userId: number): Promise<SkillTreeResponseData> => {
+  const res = await axios.get(`${API_BASE_URL}/student/${userId}/skill-tree`);
+  return res.data;
+};
+
+export const requestCodeDoctor = async (submissionId: number): Promise<CodeDoctorResponseData> => {
+  const res = await axios.post(`${API_BASE_URL}/student/code-doctor/diagnose`, {
+    submission_id: submissionId
+  });
+  return res.data;
+};
+
+export const fetchTeacherClasses = async () => {
+  const res = await axios.get(`${API_BASE_URL}/teacher/my-classes`);
+  return res.data;
+};
+
+export const fetchClassHeatmap = async (orgId: number): Promise<ClassHeatmapResponseData> => {
+  const res = await axios.get(`${API_BASE_URL}/teacher/class/${orgId}/heatmap`);
+  return res.data;
+};
+
+export const searchStudents = async (query: string) => {
+  const res = await axios.get(`${API_BASE_URL}/teacher/students/search?q=${encodeURIComponent(query)}`);
+  return res.data;
+};

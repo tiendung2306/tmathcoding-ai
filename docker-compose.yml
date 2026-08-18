@@ -1,0 +1,60 @@
+version: '3.8'
+
+services:
+  # MySQL 8.0 Database Engine
+  db:
+    image: mysql:8.0
+    container_name: tmath-mysql
+    restart: always
+    environment:
+      MYSQL_ROOT_PASSWORD: root
+      MYSQL_DATABASE: dmoj
+    ports:
+      - "3306:3306"
+    volumes:
+      - data_mysql:/var/lib/mysql
+
+  # Redis Cache & Task Queue
+  redis:
+    image: redis:7-alpine
+    container_name: tmath-redis
+    restart: always
+    ports:
+      - "6379:6379"
+
+  # FastAPI Backend AI Service
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: tmath-backend
+    restart: always
+    environment:
+      - MYSQL_HOST=db
+      - MYSQL_PORT=3306
+      - MYSQL_USER=root
+      - MYSQL_PASSWORD=root
+      - MYSQL_DB=dmoj
+      - REDIS_HOST=redis
+      - LLM_PROVIDER=openai_compatible
+      - LLM_BASE_URL=http://host.docker.internal:11434/v1
+    ports:
+      - "8000:8000"
+    depends_on:
+      - db
+      - redis
+
+  # React Frontend Dashboard
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: tmath-frontend
+    restart: always
+    ports:
+      - "5173:5173"
+    depends_on:
+      - backend
+
+volumes:
+  data_mysql:
