@@ -7,10 +7,10 @@ services:
     container_name: tmath-mysql
     restart: always
     environment:
-      MYSQL_ROOT_PASSWORD: root
-      MYSQL_DATABASE: dmoj
+      MYSQL_ROOT_PASSWORD: ${MYSQL_PASSWORD:-root}
+      MYSQL_DATABASE: ${MYSQL_DB:-dmoj}
     ports:
-      - "3306:3306"
+      - "${MYSQL_PORT:-3306}:3306"
     volumes:
       - data_mysql:/var/lib/mysql
 
@@ -20,7 +20,7 @@ services:
     container_name: tmath-redis
     restart: always
     ports:
-      - "6379:6379"
+      - "${REDIS_PORT:-6379}:6379"
 
   # 3. Ollama LLM Engine Container (Loads OLLAMA_CONTEXT_LENGTH dynamically from .env variable LLM_CONTEXT_WINDOW)
   ollama:
@@ -64,11 +64,15 @@ services:
       - .env
     environment:
       - LLM_BASE_URL=http://ollama:11434/v1
+      - MYSQL_HOST=db
+      - REDIS_HOST=redis
     ports:
       - "8000:8000"
     volumes:
       - ./backend/app:/app/app
       - ./scripts:/scripts
+      - ./backup:/app/backup
+      - ./backup:/backup
     depends_on:
       - db
       - redis
