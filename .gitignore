@@ -33,6 +33,13 @@ scratch/
 *.log
 *.sqlite3
 
-# MySQL Data Directory / Dump Local Temp
-data_mysql/
+# Archives, Backup Dumps & Zip files
+*.zip
 *.tar.gz
+*.tar
+backup/
+backup(1)/
+backup*/
+
+# MySQL Data Directory / Local Data Volumes
+data_mysql/

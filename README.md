@@ -8,81 +8,99 @@ Hệ thống Microservice AI Phân Tích Học Lực, Trợ Lý AI Code Doctor, 
 
 ```text
 tmathcoding/
-├── .gitignore                    # Quản lý bỏ qua Git cho Python, React, IDE, Log
-├── SOFTWARE_DESIGN_DOCUMENT.md   # Tài liệu Thiết kế Phần mềm SDD v3.1.0 chuẩn hóa
-├── docker-compose.yml            # Container Orchestration (MySQL 8.0, Redis, FastAPI, React)
+├── .env.example                  # Mẫu biến môi trường dự án
+├── .env                          # File cấu hình môi trường local chính
+├── docker-compose.yml            # Docker Compose Base Stack (DB, Redis, Ollama, Open WebUI, Backend, Frontend)
+├── docker-compose.gpu.yml        # NVIDIA CUDA GPU Extension Override (Siêu gọn - 10 dòng)
+├── docker-compose.rocm.yml       # AMD ROCm GPU Extension Override (Siêu gọn - 8 dòng)
+├── SOFTWARE_DESIGN_DOCUMENT.md   # Tài liệu Thiết kế SDD v3.1.0 chuẩn hóa
 ├── backup/                       # Thư mục chứa 202 file SQL backup (10.1 GB)
 ├── scripts/
-│   └── seed_mysql.py             # Script tự động import 10.1 GB backup vào MySQL DB
+│   ├── pull_model.py             # Script nạp Model AI từ .env vào Docker Persistent Volume
+│   ├── seed_mysql.py             # Script tự động import 10.1 GB backup vào MySQL DB
+│   └── test_llm.py               # Script Chat CLI Interactive thử nghiệm kết nối LLM Engine
 ├── backend/                      # Service FastAPI Backend AI API
 │   ├── app/
-│   │   ├── api/v1/               # Endpoints RESTful (Student, Teacher, Admin)
-│   │   ├── core/                 # Config, Async MySQL Database, LLM Adapter (Instructor/LiteLLM)
-│   │   ├── models/               # SQLAlchemy ORM Models (flawless DMOJ Schema mapping)
-│   │   ├── schemas/              # Pydantic v2 Models & Structured Outputs
-│   │   ├── services/             # Core Logic (Skill Tree, AI Code Doctor, Class Heatmap)
-│   │   └── main.py               # FastAPI Entrypoint
-│   ├── requirements.txt          # Dependencies Python
+│   │   ├── core/
+│   │   │   ├── config.py         # Nạp biến môi trường động & LLM Hyperparameters từ .env
+│   │   │   └── llm_adapter.py    # LLM Adapter chuẩn (Instructor + LiteLLM Async, MD_JSON mode)
+│   │   ├── services/
+│   │   └── main.py
 │   └── Dockerfile
 └── frontend/                     # React 18 + TypeScript + Vite Dashboard App
-    ├── src/
-    │   ├── components/           # SkillTree, BloomRadar, ClassHeatmap, CodeDoctorModal, Navbar
-    │   ├── pages/                # StudentDashboard, TeacherDashboard
-    │   ├── services/             # Axios API Client
-    │   ├── types/                # TypeScript Interfaces
-    │   ├── App.tsx
-    │   └── main.tsx
-    ├── package.json
-    ├── tailwind.config.js
-    └── Dockerfile
 ```
 
 ---
 
-## 🚀 HƯỚNG DẪN KHỞI CHẠY (QUICK START)
+## ⚙️ CẤU HÌNH SIÊU THAM SỐ LLM ENGINE (`.env`)
 
-### 1. Khởi chạy bằng Docker Compose (Khuyên dùng)
+Bạn có thể tinh chỉnh các thông số siêu tham số mô hình AI dễ dàng tại file `.env` gốc dự án:
 
-```bash
-# 1. Khởi tạo toàn bộ container (MySQL 8.0, Redis, FastAPI Backend, React Frontend)
-docker-compose up -d --build
+```env
+LLM_PROVIDER=openai_compatible
+LLM_BASE_URL=http://localhost:11434/v1
+LLM_MODEL=hf.co/empero-ai/Qwen3.8-4B-GGUF:Q4_K_M
+LLM_API_KEY=ollama
 
-# 2. Tự động Seed 10.1 GB dữ liệu backup vào MySQL Database
-python scripts/seed_mysql.py
-```
-
-- **Frontend Dashboard:** `http://localhost:5173`
-- **FastAPI OpenAPI Swagger Docs:** `http://localhost:8000/docs`
-- **Health Check Endpoint:** `http://localhost:8000/api/v1/health`
-
-### 2. Khởi chạy Thủ công (Local Dev)
-
-#### Backend:
-```bash
-cd backend
-python -m venv .venv
-source .venv/bin/activate  # Hoặc .venv\Scripts\activate trên Windows
-pip install -r requirements.txt
-uvicorn app.main:app --reload --port 8000
-```
-
-#### Frontend:
-```bash
-cd frontend
-npm install
-npm run dev
+# Tinh chỉnh Siêu tham số LLM (Hyperparameters)
+LLM_TEMPERATURE=0.2          # Độ sáng tạo (0.0: Chính xác/Phân tích code, 1.0: Văn bản)
+LLM_MAX_TOKENS=2048          # Số lượng token tối đa trong 1 câu trả lời
+LLM_TOP_P=0.95               # Nucleus sampling probability
+LLM_CONTEXT_WINDOW=8192      # Kích thước cửa sổ ngữ cảnh (Context Window / num_ctx)
 ```
 
 ---
 
-## 🛡️ TÍNH NĂNG NỔI BẬT
+## ⚡ HƯỚNG DẪN KHỞI CHẠY 100% QUA DOCKER (FULL CONTAINERIZED MODE)
 
-1. **Học sinh:** 
-   - **Cây Kỹ Năng 99 Node & Bloom Radar (A-F):** Trực quan hóa điểm thuần thục năng lực.
-   - **AI Code Doctor (Socratic Debugger):** Chẩn đoán lỗi sai bằng phương pháp gợi mở qua **Instructor Framework** (không cho sẵn đáp án).
-   - **Chế độ Tự Học (Independent Mode):** Phục vụ 72.5% học sinh tự do không thuộc lớp nào.
-2. **Giáo viên & Admin:**
-   - **Xem thông số Lớp (Class Heatmap 2D):** Ma trận năng lực 2D kèm cờ cảnh báo 🚨 `STUCK`, ⚠️ `GAP`, 💤 `INACTIVE`.
-   - **Search Học sinh & Super Admin Access:** Super Admin xem và search toàn bộ 252 lớp và 21,416 học sinh.
-3. **Backend Engine:**
-   - **Pipeline Auto-Tagging:** Đọc Đề bài + Code AC mẫu + Constraints để tự động gán tag chính xác 99% cho 11,971 bài chưa có tag.
+### Bước 1: Khởi chạy Docker Compose (Tùy chọn theo Phần cứng)
+
+* **Chạy CPU Mode (Mặc định):**
+  ```bash
+  docker compose up -d --build
+  ```
+
+* **Chạy NVIDIA CUDA GPU Acceleration:**
+  ```bash
+  docker compose -f docker-compose.yml -f docker-compose.gpu.yml up -d --build
+  ```
+
+* **Chạy AMD ROCm GPU Acceleration:**
+  ```bash
+  docker compose -f docker-compose.yml -f docker-compose.rocm.yml up -d --build
+  ```
+
+---
+
+### Bước 2: Nạp Model AI Trong `.env` Vào Container Ollama (Chạy 1 lần đầu)
+
+```bash
+docker exec -it tmath-backend python /scripts/pull_model.py
+```
+
+---
+
+### Bước 3: Seed 10.1 GB Dữ Liệu Backup Vào MySQL (Chạy 1 lần đầu)
+
+```bash
+docker exec -it tmath-backend python /scripts/seed_mysql.py
+```
+
+---
+
+### 🧪 Bước 4: Kiểm Tra & Trải Nghiệm AI
+
+* **Cách 1: Giao diện Giao tiếp Web UI (ChatGPT-like UI):** `http://localhost:3000` (Open WebUI)
+* **Cách 2: Trải nghiệm Interactive AI Chat CLI:**
+  ```bash
+  docker exec -it tmath-backend python /scripts/test_llm.py
+  ```
+
+---
+
+## 🌐 ĐƯỜNG DẪN TRUY CẬP HỆ THỐNG
+
+* **Open WebUI (ChatGPT UI cho Ollama):** `http://localhost:3000`
+* **tmath React Frontend Dashboard:** `http://localhost:5173`
+* **FastAPI OpenAPI Swagger Docs:** `http://localhost:8000/docs`
+* **Health Check Endpoint:** `http://localhost:8000/api/v1/health`

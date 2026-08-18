@@ -1,0 +1,10 @@
+version: '3.8'
+
+# AMD ROCm GPU Extension Override
+# Usage: docker compose -f docker-compose.yml -f docker-compose.rocm.yml up -d
+services:
+  ollama:
+    image: ollama/ollama:rocm
+    devices:
+      - /dev/kfd
+      - /dev/dri

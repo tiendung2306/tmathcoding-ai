@@ -1,5 +1,4 @@
-from sqlalchemy import Column, Integer, String, Float, DateTime, Text, ForeignKey, TinyInteger
-from sqlalchemy.orm import relationship
+from sqlalchemy import Column, Integer, String, Float, DateTime, Text, ForeignKey, SmallInteger
 from app.core.database import Base
 
 class JudgeProfile(Base):
@@ -12,7 +11,7 @@ class JudgeProfile(Base):
     performance_points = Column(Float, default=0.0)
     problem_count = Column(Integer, default=0)
     display_rank = Column(String(50), default="user")
-    super_admin = Column(TinyInteger, default=0)
+    super_admin = Column(SmallInteger, default=0)
 
 class JudgeOrganization(Base):
     __tablename__ = "judge_organization"
@@ -22,7 +21,7 @@ class JudgeOrganization(Base):
     slug = Column(String(128), unique=True)
     short_name = Column(String(20))
     description = Column(Text)
-    is_open = Column(TinyInteger, default=1)
+    is_open = Column(SmallInteger, default=1)
 
 class JudgeOrganizationAdmins(Base):
     __tablename__ = "judge_organization_admins"

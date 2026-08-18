@@ -1,10 +1,13 @@
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from typing import List, Union
-import json
+import os
 
 class Settings(BaseSettings):
     PROJECT_NAME: str
     API_V1_STR: str = "/api/v1"
+    
+    # Backup Directory Configuration
+    BACKUP_DIR: str = "backup"
     
     # Database MySQL Configuration (Required from Environment)
     MYSQL_HOST: str
@@ -25,13 +28,19 @@ class Settings(BaseSettings):
     LLM_PROVIDER: str = "openai_compatible"
     LLM_BASE_URL: str = "http://localhost:11434/v1"
     LLM_API_KEY: str = "ollama"
-    LLM_MODEL: str = "qwen2.5-coder:14b"
+    LLM_MODEL: str = "hf.co/empero-ai/Qwen3.8-4B-GGUF:Q4_K_M"
+
+    # LLM Hyperparameters & Sampling Options
+    LLM_TEMPERATURE: float = 0.2
+    LLM_MAX_TOKENS: int = 2048
+    LLM_TOP_P: float = 0.95
+    LLM_CONTEXT_WINDOW: int = 8192
     
     # CORS Origins
     CORS_ORIGINS: Union[List[str], str] = ["http://localhost:5173"]
 
     model_config = SettingsConfigDict(
-        env_file=".env",
+        env_file=("../.env", ".env"),
         env_file_encoding="utf-8",
         case_sensitive=True,
         extra="ignore"
