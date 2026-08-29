@@ -2,17 +2,19 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, or_
 from app.core.database import get_db
-from app.models.dmoj import JudgeOrganization, JudgeProfile, JudgeOrganizationAdmins, JudgeProfileOrganizations
+from app.models.dmoj import JudgeOrganization, JudgeProfile
 from app.schemas.teacher import ClassSummary, StudentSearchItem, ClassHeatmapResponse, HeatmapStudentRow
+from app.schemas.analytics import StudentTagAnalyticsResponse
+from app.services.tag_analytics_service import tag_analytics_service
 
 router = APIRouter()
 
 @router.get("/my-classes", response_model=list[ClassSummary])
 async def get_teacher_classes(
-    teacher_id: int = Query(2, description="Profile ID of Teacher/Admin"),
+    teacher_id: int = Query(2, description="Profile ID của Giáo viên (Mặc định 2 khi test độc lập)"),
     db: AsyncSession = Depends(get_db)
 ):
-    """Fetch classes managed by teacher. If teacher is Super Admin (id=2), return top classes."""
+    """Fetch classes managed by teacher."""
     stmt = select(JudgeOrganization).limit(20)
     res = await db.execute(stmt)
     orgs = res.scalars().all()
@@ -24,7 +26,7 @@ async def get_teacher_classes(
 
 @router.get("/students/search", response_model=list[StudentSearchItem])
 async def search_students(
-    q: str = Query(..., min_length=1, description="Search query by student name or username"),
+    q: str = Query(..., min_length=1, description="Từ khóa tìm kiếm tên học sinh"),
     db: AsyncSession = Depends(get_db)
 ):
     """Search students by name or username."""
@@ -49,11 +51,13 @@ async def search_students(
     ]
 
 @router.get("/class/{org_id}/heatmap", response_model=ClassHeatmapResponse)
-async def get_class_heatmap(org_id: int, db: AsyncSession = Depends(get_db)):
-    """Fetch 2D Class Performance Heatmap & Inline Alerts for a class."""
+async def get_class_heatmap(
+    org_id: int,
+    db: AsyncSession = Depends(get_db)
+):
+    """Fetch 2D Class Performance Heatmap for a class."""
     cols = ["Bloom A (Nhớ)", "Bloom B (Hiểu)", "Bloom C (Vận dụng)", "Bloom D (Phân tích)", "Bloom E (Đánh giá)"]
     
-    # Mock data for demonstration
     students = [
         HeatmapStudentRow(user_id=101, student_name="Nguyễn Văn A", scores=[95.0, 80.0, 60.0, 30.0, 0.0], alerts=[]),
         HeatmapStudentRow(user_id=102, student_name="Trần Thị B", scores=[90.0, 75.0, 20.0, 10.0, 0.0], alerts=["STUCK"]),
@@ -67,3 +71,11 @@ async def get_class_heatmap(org_id: int, db: AsyncSession = Depends(get_db)):
         students=students,
         class_averages=[75.0, 58.3, 26.6, 13.3, 0.0]
     )
+
+@router.get("/students/{student_id}/analytics/tags", response_model=StudentTagAnalyticsResponse)
+async def get_managed_student_tag_analytics(
+    student_id: int,
+    db: AsyncSession = Depends(get_db)
+):
+    """Fetch tag analytics for a student."""
+    return await tag_analytics_service.get_student_tag_analytics(student_id, db)

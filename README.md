@@ -13,7 +13,9 @@ tmathcoding/
 ├── docker-compose.yml            # Docker Compose Base Stack (DB, Redis, Ollama, Open WebUI, Backend, Frontend)
 ├── docker-compose.gpu.yml        # NVIDIA CUDA GPU Extension Override (Siêu gọn - 10 dòng)
 ├── docker-compose.rocm.yml       # AMD ROCm GPU Extension Override (Siêu gọn - 8 dòng)
-├── SOFTWARE_DESIGN_DOCUMENT.md   # Tài liệu Thiết kế SDD v3.1.0 chuẩn hóa
+├── docs/                         # Thư mục chứa tài liệu đặc tả & thiết kế dự án
+│   ├── SOFTWARE_DESIGN_DOCUMENT.md   # Tài liệu Thiết kế SDD v3.1.0 chuẩn hóa
+│   └── FEATURE_1_TAG_ANALYTICS_SPEC.md # Đặc tả chi tiết Tính năng 1 (Tag Analytics & AI Diagnostic)
 ├── backup/                       # Thư mục chứa 202 file SQL backup (10.1 GB)
 ├── scripts/
 │   ├── pull_model.py             # Script nạp Model AI từ .env vào Docker Persistent Volume

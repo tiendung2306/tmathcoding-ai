@@ -54,8 +54,9 @@ class JudgeProblemtype(Base):
     __tablename__ = "judge_problemtype"
 
     id = Column(Integer, primary_key=True, index=True)
-    key = Column(String(20), unique=True)
-    name = Column(String(100))
+    name = Column(String(20))
+    full_name = Column(String(100))
+    priority = Column(SmallInteger, default=0)
 
 class JudgeProblemTypes(Base):
     __tablename__ = "judge_problem_types"

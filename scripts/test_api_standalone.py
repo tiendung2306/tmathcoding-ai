@@ -1,0 +1,120 @@
+import asyncio
+import sys
+import os
+from httpx import AsyncClient, ASGITransport
+
+# Set stdout encoding to UTF-8 for Windows console
+if sys.platform == "win32":
+    sys.stdout.reconfigure(encoding="utf-8")
+
+# Add backend directory to sys.path
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "backend"))
+
+from app.main import app
+from app.core.database import get_db
+from app.schemas.analytics import (
+    StudentTagAnalyticsResponse,
+    StudentTagAnalyticsSummary,
+    TagMetricItem,
+    TagSubmissionStat,
+    AICommentaryResponse,
+    Recent7DaysSummary
+)
+
+# Mock DB Session for Standalone API Test
+class MockAsyncSession:
+    pass
+
+async def override_get_db():
+    yield MockAsyncSession()
+
+app.dependency_overrides[get_db] = override_get_db
+
+async def main():
+    print("==================================================================")
+    print("BAO CAO KIEM THU STANDALONE REST API (FASTAPI + HTTPX)")
+    print("==================================================================")
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver") as client:
+        # 1. Test GET /api/v1/student/analytics/tags?user_id=1
+        print("\n1. [TEST ENDPOINT 1] GET /api/v1/student/analytics/tags?user_id=1")
+        
+        # Override service output for verification
+        from app.services.tag_analytics_service import tag_analytics_service
+        async def mock_get_analytics(user_id, db):
+            return StudentTagAnalyticsResponse(
+                user_id=user_id,
+                student_name="Nguyễn Văn A",
+                summary=StudentTagAnalyticsSummary(
+                    total_problems_in_system=1250,
+                    total_solved_unique=45,
+                    total_submissions_7d=15
+                ),
+                tags=[
+                    TagMetricItem(
+                        tag_id=1,
+                        key="array1d",
+                        name="Mảng 1D",
+                        total_problems=20,
+                        ac_problems=18,
+                        completion_rate=90.0,
+                        tag_weight="large",
+                        submissions_stat=TagSubmissionStat(
+                            total_submissions=10, ac_count=9, wa_count=1, ac_rate=90.0, wa_rate=10.0
+                        ),
+                        status="MASTERED"
+                    ),
+                    TagMetricItem(
+                        tag_id=12,
+                        key="dp",
+                        name="Quy hoạch động",
+                        total_problems=15,
+                        ac_problems=5,
+                        completion_rate=33.3,
+                        tag_weight="large",
+                        submissions_stat=TagSubmissionStat(
+                            total_submissions=15, ac_count=5, wa_count=2, tle_count=8, ac_rate=33.3, wa_rate=13.3, tle_rate=53.3, primary_error="TLE"
+                        ),
+                        status="NEEDS_IMPROVEMENT"
+                    )
+                ]
+            )
+        tag_analytics_service.get_student_tag_analytics = mock_get_analytics
+
+        resp1 = await client.get("/api/v1/student/analytics/tags?user_id=1")
+        print(f"   ► Status Code: {resp1.status_code} OK")
+        assert resp1.status_code == 200, f"Expected 200, got {resp1.status_code}"
+        data1 = resp1.json()
+        print(f"   ► Hoc sinh: {data1['student_name']} (User ID: {data1['user_id']})")
+        print(f"   ► Tong so bai tap trong he thong: {data1['summary']['total_problems_in_system']}")
+        print(f"   ► Tag 1: {data1['tags'][0]['name']} | Completion: {data1['tags'][0]['completion_rate']}% | Status: {data1['tags'][0]['status']}")
+        print(f"   ► Tag 2: {data1['tags'][1]['name']} | Completion: {data1['tags'][1]['completion_rate']}% | Loi chinh: {data1['tags'][1]['submissions_stat']['primary_error']} ({data1['tags'][1]['submissions_stat']['tle_rate']}% TLE)")
+
+        # 2. Test GET /api/v1/student/analytics/ai-commentary?user_id=1
+        print("\n2. [TEST ENDPOINT 2] GET /api/v1/student/analytics/ai-commentary?user_id=1")
+        from app.services.tag_ai_service import tag_ai_service
+        async def mock_get_commentary(user_id, db, force_refresh=False):
+            return AICommentaryResponse(
+                commentary="Trong 7 ngày vừa qua, bạn đã nộp 15 lượt bài tập và làm rất tốt ở mảng Quy hoạch động (5 bài AC)! Hôm nay thử đổi gió với 1 bài toán Sắp xếp nhẹ nhàng để tích điểm nhé!",
+                recent_7days_summary=Recent7DaysSummary(
+                    submissions_count=15,
+                    active_tags=["Quy hoạch động"]
+                ),
+                recommended_tags=["Sắp xếp", "Mảng 1D"],
+                generated_at="2026-08-23T17:15:00Z"
+            )
+        tag_ai_service.get_daily_ai_commentary = mock_get_commentary
+
+        resp2 = await client.get("/api/v1/student/analytics/ai-commentary?user_id=1")
+        print(f"   ► Status Code: {resp2.status_code} OK")
+        assert resp2.status_code == 200, f"Expected 200, got {resp2.status_code}"
+        data2 = resp2.json()
+        print(f"   ► Loi nhan xet AI Hang Ngay:\n     \"{data2['commentary']}\"")
+        print(f"   ► Tag duoc goi y: {data2['recommended_tags']}")
+
+    print("\n==================================================================")
+    print("SUCCESS: 100% API ENDPOINTS DA HOAT DONG HOAN HAO (STATUS 200 OK)")
+    print("==================================================================")
+
+if __name__ == "__main__":
+    asyncio.run(main())

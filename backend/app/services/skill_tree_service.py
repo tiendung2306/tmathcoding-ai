@@ -47,8 +47,8 @@ class SkillTreeService:
             nodes.append(
                 SkillTreeNode(
                     topic_id=t.id,
-                    key=t.key or f"T{t.id}",
-                    name=t.name or f"Topic {t.id}",
+                    key=t.name or f"T{t.id}",
+                    name=t.full_name or t.name or f"Topic {t.id}",
                     category="Chủ đề",
                     mastery_score=round(mastery, 1),
                     status=status
