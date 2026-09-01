@@ -105,4 +105,4 @@ docker exec -it tmath-backend python /scripts/seed_mysql.py
 * **Open WebUI (ChatGPT UI cho Ollama):** `http://localhost:3000`
 * **tmath React Frontend Dashboard:** `http://localhost:5173`
 * **FastAPI OpenAPI Swagger Docs:** `http://localhost:8000/docs`
-* **Health Check Endpoint:** `http://localhost:8000/api/v1/health`
+* **Health Check Endpoint:** `http://localhost:8000/health`

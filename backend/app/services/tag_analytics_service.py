@@ -61,28 +61,45 @@ class TagAnalyticsService:
             .group_by(JudgeProblemTypes.problemtype_id, JudgeSubmission.result)
         )
         sub_7d_res = await db.execute(sub_7d_stmt)
-        
+
         # Structure 7d sub data: {tag_id: {'AC': x, 'WA': y, 'TLE': z, ...}}
         sub_7d_map: Dict[int, Dict[str, int]] = {}
-        total_submissions_7d = 0
         for row in sub_7d_res.all():
             tag_id = row.problemtype_id
             verdict = row.result or "OTHER"
             cnt = row.sub_cnt
-            total_submissions_7d += cnt
 
             if tag_id not in sub_7d_map:
                 sub_7d_map[tag_id] = {}
             sub_7d_map[tag_id][verdict] = sub_7d_map[tag_id].get(verdict, 0) + cnt
+
+        # 4b. Query GLOBAL 7-day submission count (no tag join -> no double counting
+        # for submissions on problems that belong to multiple tags)
+        total_7d_res = await db.execute(
+            select(func.count(JudgeSubmission.id))
+            .where(JudgeSubmission.user_id == user_id, JudgeSubmission.date >= seven_days_ago)
+        )
+        total_submissions_7d = total_7d_res.scalar_one() or 0
 
         # 5. Fetch all 99 topics
         topics_stmt = select(JudgeProblemtype).order_by(JudgeProblemtype.id)
         topics_res = await db.execute(topics_stmt)
         all_topics = topics_res.scalars().all()
 
+        # 6. Query GLOBAL distinct counts for Summary
+        # (Tránh đếm trùng: 1 bài thuộc nhiều Tag chỉ được tính 1 lần)
+        total_distinct_res = await db.execute(
+            select(func.count(func.distinct(JudgeProblemTypes.problem_id)))
+        )
+        total_problems_in_system = total_distinct_res.scalar_one() or 0
+
+        solved_distinct_res = await db.execute(
+            select(func.count(func.distinct(JudgeSubmission.problem_id)))
+            .where(JudgeSubmission.user_id == user_id, JudgeSubmission.result == "AC")
+        )
+        total_solved_unique_system = solved_distinct_res.scalar_one() or 0
+
         tag_items: List[TagMetricItem] = []
-        total_solved_unique_system = sum(solved_problems_map.values())
-        total_problems_in_system = sum(total_problems_map.values())
 
         for t in all_topics:
             t_id = t.id

@@ -3,8 +3,9 @@ import sys
 import os
 from httpx import AsyncClient, ASGITransport
 
-# Add backend directory to sys.path
+# Add backend directory to sys.path (host layout) and /app (Docker container layout)
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "backend"))
+sys.path.insert(0, "/app")
 
 from app.main import app
 from app.core.database import AsyncSessionLocal
@@ -39,19 +40,18 @@ async def main():
         print(f"   ► Thời gian sinh: {ai_res.generated_at}")
 
     # 2. Test FastAPI Endpoints via AsyncClient
-    print("\n3. [API ENDPOINTS] Kiểm thử REST API Endpoint Bảo mật qua HTTP Client...")
+    print("\n3. [API ENDPOINTS] Kiểm thử REST API Endpoint qua HTTP Client...")
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver") as client:
-        # Test Endpoint GET /api/v1/student/me/analytics/tags
-        headers = {"X-User-ID": "1"}
-        resp_tags = await client.get("/api/v1/student/me/analytics/tags", headers=headers)
-        print(f"   ► GET /api/v1/student/me/analytics/tags Status: {resp_tags.status_code}")
+        # Test Endpoint GET /api/v1/student/analytics/tags
+        resp_tags = await client.get("/api/v1/student/analytics/tags?user_id=1")
+        print(f"   ► GET /api/v1/student/analytics/tags Status: {resp_tags.status_code}")
         assert resp_tags.status_code == 200, f"Failed: {resp_tags.text}"
         data_tags = resp_tags.json()
         print(f"     Status 200 OK | Student: {data_tags['student_name']} | Tags Received: {len(data_tags['tags'])}")
 
-        # Test Endpoint GET /api/v1/student/me/analytics/ai-commentary
-        resp_ai = await client.get("/api/v1/student/me/analytics/ai-commentary", headers=headers)
-        print(f"   ► GET /api/v1/student/me/analytics/ai-commentary Status: {resp_ai.status_code}")
+        # Test Endpoint GET /api/v1/student/analytics/ai-commentary
+        resp_ai = await client.get("/api/v1/student/analytics/ai-commentary?user_id=1&force_refresh=true")
+        print(f"   ► GET /api/v1/student/analytics/ai-commentary Status: {resp_ai.status_code}")
         assert resp_ai.status_code == 200, f"Failed: {resp_ai.text}"
         data_ai = resp_ai.json()
         print(f"     Status 200 OK | Commentary: \"{data_ai['commentary']}\"")

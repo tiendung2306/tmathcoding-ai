@@ -12,7 +12,7 @@ export const CodeDoctorModal: React.FC<CodeDoctorModalProps> = ({ data, onClose 
 
   return (
     <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
-      <div className="bg-dark-card border border-dark-border rounded-2xl w-full max-w-xl p-6 shadow-2xl relative animate-in fade-in zoom-in duration-200">
+      <div className="bg-dark-card border border-dark-border rounded-2xl w-full max-w-xl p-6 shadow-2xl relative animate-modal-in">
         <button
           onClick={onClose}
           className="absolute right-4 top-4 text-slate-400 hover:text-slate-200 bg-dark-bg p-1.5 rounded-lg border border-dark-border"

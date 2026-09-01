@@ -8,7 +8,9 @@ import {
 const API_BASE_URL = '/api/v1';
 
 export const fetchSkillTree = async (userId: number): Promise<SkillTreeResponseData> => {
-  const res = await axios.get(`${API_BASE_URL}/student/${userId}/skill-tree`);
+  const res = await axios.get(`${API_BASE_URL}/student/skill-tree`, {
+    params: { user_id: userId }
+  });
   return res.data;
 };
 

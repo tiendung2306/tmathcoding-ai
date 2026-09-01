@@ -19,9 +19,11 @@ class TagAIService:
         # In-memory daily cache keyed by "user_id_YYYY-MM-DD"
         self._daily_cache: Dict[str, AICommentaryResponse] = {}
 
-    def _get_cache_key(self, user_id: int) -> str:
-        today_str = datetime.utcnow().strftime("%Y-%m-%d")
-        return f"{user_id}_{today_str}"
+    def _evict_stale_cache(self, today_str: str) -> None:
+        """Removes commentaries cached from previous days to prevent unbounded memory growth."""
+        stale_keys = [key for key in self._daily_cache if not key.endswith(f"_{today_str}")]
+        for key in stale_keys:
+            self._daily_cache.pop(key, None)
 
     async def get_daily_ai_commentary(
         self,
@@ -29,7 +31,11 @@ class TagAIService:
         db: AsyncSession,
         force_refresh: bool = False
     ) -> AICommentaryResponse:
-        cache_key = self._get_cache_key(user_id)
+        today_str = datetime.utcnow().strftime("%Y-%m-%d")
+        cache_key = f"{user_id}_{today_str}"
+
+        # Evict commentaries cached from previous days (bounded in-memory cache)
+        self._evict_stale_cache(today_str)
 
         if not force_refresh and cache_key in self._daily_cache:
             return self._daily_cache[cache_key]

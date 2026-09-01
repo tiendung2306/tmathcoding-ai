@@ -1,5 +1,7 @@
 from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic import field_validator
 from typing import List, Union
+import json
 import os
 
 class Settings(BaseSettings):
@@ -38,6 +40,21 @@ class Settings(BaseSettings):
     
     # CORS Origins
     CORS_ORIGINS: Union[List[str], str] = ["http://localhost:5173"]
+
+    @field_validator("CORS_ORIGINS", mode="before")
+    @classmethod
+    def sanitize_cors_origins(cls, v):
+        """Parses CORS origins from env (JSON list or comma-separated string)
+        and strips wildcard '*' to keep CORS valid with allow_credentials=True."""
+        if isinstance(v, str):
+            v = v.strip()
+            if v.startswith("["):
+                v = json.loads(v)
+            else:
+                v = [origin.strip() for origin in v.split(",") if origin.strip()]
+        if isinstance(v, list):
+            v = [origin for origin in v if origin and origin != "*"]
+        return v or ["http://localhost:5173"]
 
     model_config = SettingsConfigDict(
         env_file=("../.env", ".env"),
