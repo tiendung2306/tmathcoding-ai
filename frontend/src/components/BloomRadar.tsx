@@ -1,6 +1,7 @@
 import React from 'react';
 import { Radar, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, ResponsiveContainer } from 'recharts';
 import { BloomRadarData } from '../types';
+import { Card, CardHeader, CardTitle, CardDescription, CardContent } from './ui/card';
 
 interface BloomRadarProps {
   data: BloomRadarData;
@@ -16,27 +17,53 @@ export const BloomRadar: React.FC<BloomRadarProps> = ({ data }) => {
     { subject: 'F - Đặc biệt', A: data.F_DacBiet, fullMark: 100 },
   ];
 
+  const levels = [
+    { label: 'Mức A (Nhớ)', val: data.A_Nho },
+    { label: 'Mức B (Hiểu)', val: data.B_Hieu },
+    { label: 'Mức C (Vận dụng)', val: data.C_VanDung },
+    { label: 'Mức D (Phân tích)', val: data.D_PhanTich },
+    { label: 'Mức E (Đánh giá)', val: data.E_DanhGia },
+    { label: 'Mức F (Sáng tạo)', val: data.F_DacBiet },
+  ];
+
   return (
-    <div className="bg-dark-card border border-dark-border rounded-2xl p-5 shadow-xl">
-      <h2 className="text-base font-semibold text-slate-200 mb-1">Thang Độ Khó Bloom Chart (A-F)</h2>
-      <p className="text-xs text-slate-400 mb-4">Trực quan hóa tỷ lệ thuần thục 6 mức tư duy lập trình</p>
-      
-      <div className="h-64 w-full">
-        <ResponsiveContainer width="100%" height="100%">
-          <RadarChart cx="50%" cy="50%" outerRadius="80%" data={chartData}>
-            <PolarGrid stroke="#374151" />
-            <PolarAngleAxis dataKey="subject" stroke="#9CA3AF" tick={{ fill: '#9CA3AF', fontSize: 11 }} />
-            <PolarRadiusAxis angle={30} domain={[0, 100]} stroke="#4B5563" />
-            <Radar
-              name="Mastery"
-              dataKey="A"
-              stroke="#3B82F6"
-              fill="#3B82F6"
-              fillOpacity={0.35}
-            />
-          </RadarChart>
-        </ResponsiveContainer>
-      </div>
-    </div>
+    <Card className="h-full flex flex-col justify-between">
+      <CardHeader className="pb-2">
+        <CardTitle className="text-sm">Phân bố năng lực Bloom</CardTitle>
+      </CardHeader>
+
+      <CardContent className="pt-2 pb-3 flex-1 flex flex-col justify-between">
+        <div className="h-56 w-full">
+          <ResponsiveContainer width="100%" height="100%">
+            <RadarChart cx="50%" cy="50%" outerRadius="75%" data={chartData}>
+              <PolarGrid stroke="#E2E8F0" />
+              <PolarAngleAxis
+                dataKey="subject"
+                stroke="#64748B"
+                tick={{ fill: '#475569', fontSize: 10, fontWeight: 500 }}
+              />
+              <PolarRadiusAxis angle={30} domain={[0, 100]} stroke="#CBD5E1" tick={{ fill: '#64748B', fontSize: 9 }} />
+              <Radar
+                name="Điểm Bloom"
+                dataKey="A"
+                stroke="#2563EB"
+                fill="#2563EB"
+                fillOpacity={0.15}
+              />
+            </RadarChart>
+          </ResponsiveContainer>
+        </div>
+
+        {/* Compact Level Breakdown Strip */}
+        <div className="grid grid-cols-3 gap-1.5 pt-2 border-t border-border/50 text-[11px]">
+          {levels.map((lvl) => (
+            <div key={lvl.label} className="bg-card-subtle rounded px-2 py-1 flex items-center justify-between">
+              <span className="text-text-secondary text-[10px]">{lvl.label}</span>
+              <span className="font-mono font-medium text-[11px] text-text-primary">{lvl.val}%</span>
+            </div>
+          ))}
+        </div>
+      </CardContent>
+    </Card>
   );
 };

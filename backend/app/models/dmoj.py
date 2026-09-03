@@ -20,8 +20,15 @@ class JudgeOrganization(Base):
     name = Column(String(128))
     slug = Column(String(128), unique=True)
     short_name = Column(String(20))
-    description = Column(Text)
+    about = Column(Text)  # Schema thật của tmath dùng 'about' (không phải 'description')
+    creation_date = Column(DateTime)
     is_open = Column(SmallInteger, default=1)
+    slots = Column(Integer)
+    access_code = Column(String(7))
+    logo_override_image = Column(String(150))
+    rate = Column(Integer, default=0)
+    year_id = Column(Integer)
+    is_hidden = Column(SmallInteger, default=0)
 
 class JudgeOrganizationAdmins(Base):
     __tablename__ = "judge_organization_admins"
@@ -86,3 +93,23 @@ class JudgeSubmissionsource(Base):
     id = Column(Integer, primary_key=True, index=True)
     submission_id = Column(Integer, ForeignKey("judge_submission.id"), unique=True, index=True)
     source = Column(Text)
+
+class AuthUser(Base):
+    """Django auth_user — nguồn username thật của học sinh/giáo viên."""
+    __tablename__ = "auth_user"
+
+    id = Column(Integer, primary_key=True, index=True)
+    username = Column(String(150), unique=True, index=True)
+    first_name = Column(String(150), default="")
+    last_name = Column(String(150), default="")
+    email = Column(String(254), default="")
+    is_active = Column(SmallInteger, default=1)
+
+class JudgeProblemGroup(Base):
+    """Nhóm mức độ bài toán — mapping Bloom theo dữ liệu thật của tmath:
+    4=A(Nhớ), 5=B(Hiểu), 6=C(Vận dụng), 7=D(Phân tích), 8=E(Đánh giá), 13=F(Đặc biệt)."""
+    __tablename__ = "judge_problemgroup"
+
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String(20))
+    full_name = Column(String(100))

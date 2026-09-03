@@ -11,7 +11,8 @@ class SkillTreeService:
         prof_stmt = select(JudgeProfile).where(JudgeProfile.id == user_id)
         prof_res = await db.execute(prof_stmt)
         profile = prof_res.scalar_one_or_none()
-        student_name = profile.name if profile else f"User {user_id}"
+        # name có thể NULL trong DB thật -> guard để Pydantic không crash 500
+        student_name = (profile.name or f"User {user_id}") if profile else f"User {user_id}"
 
         # Fetch solved problems by topic
         stmt = (

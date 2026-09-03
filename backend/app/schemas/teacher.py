@@ -25,3 +25,28 @@ class ClassHeatmapResponse(BaseModel):
     columns: List[str]
     students: List[HeatmapStudentRow]
     class_averages: List[float]
+
+class StudentBloomScore(BaseModel):
+    group_id: int
+    label: str
+    score: float
+
+class StudentDetailSummary(BaseModel):
+    total_problems_in_system: int = 0
+    total_solved_unique: int = 0
+    total_submissions_7d: int = 0
+
+class StudentDetailResponse(BaseModel):
+    """F2.2: Student Search & Detail View."""
+    user_id: int
+    name: str
+    username: str
+    points: float = 0.0
+    performance_points: float = 0.0
+    problem_count: int = 0
+    display_rank: str = "user"
+    organizations: List[str] = []
+    bloom_scores: List[StudentBloomScore] = []
+    alerts: List[str] = []
+    last_submission_at: Optional[str] = None
+    summary: StudentDetailSummary

@@ -2,19 +2,84 @@
 @tailwind components;
 @tailwind utilities;
 
-body {
-  margin: 0;
-  min-height: 100vh;
-  background-color: #0B0F19;
-  color: #F3F4F6;
-  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+@layer base {
+  :root {
+    /* Surfaces: canvas xám nhạt, card trắng, inset slate-100 */
+    --bg-app: #F8FAFC;
+    --bg-sidebar: #FFFFFF;
+    --bg-card: #FFFFFF;
+    --bg-card-hover: #F8FAFC;
+    --bg-subtle: #F1F5F9;
+
+    /* Borders: hairline slate-200, nhấn slate-300 */
+    --border-subtle: #E2E8F0;
+    --border-strong: #CBD5E1;
+
+    /* Text: slate-900 / 600 / 500 / 400 */
+    --text-primary: #0F172A;
+    --text-secondary: #475569;
+    --text-tertiary: #64748B;
+    --text-disabled: #94A3B8;
+
+    /* Accent duy nhất: blue-600, fill đậm hơn là blue-700 */
+    --brand-primary: #2563EB;
+    --brand-primary-hover: #1D4ED8;
+    --brand-cyan: #0369A1;
+
+    /* Verdict: sắc độ 600 để đạt AA trên chip nền tint */
+    --verdict-ac: #059669;
+    --verdict-wa: #DC2626;
+    --verdict-tle: #D97706;
+    --verdict-rte: #9333EA;
+    --verdict-ce: #64748B;
+
+    --bloom-a: #0284C7;
+    --bloom-b: #0D9488;
+    --bloom-c: #059669;
+    --bloom-d: #D97706;
+    --bloom-e: #EA580C;
+    --bloom-f: #9333EA;
+
+    --radius-sm: 4px;
+    --radius-md: 6px;
+    --radius-lg: 8px;
+  }
+
+  * {
+    border-color: var(--border-subtle);
+  }
+
+  body {
+    margin: 0;
+    min-height: 100vh;
+    background-color: var(--bg-app);
+    color: var(--text-primary);
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  code, pre, .font-mono {
+    font-family: 'JetBrains Mono', 'Fira Code', 'SF Mono', Consolas, monospace;
+  }
+
+  ::selection {
+    background-color: #DBEAFE;
+    color: #0F172A;
+  }
+
+  /* Mạng lưới focus cho element thô (component có ring riêng đã outline-none) */
+  :where(button, a, [role="button"]):focus-visible {
+    outline: 2px solid var(--brand-primary);
+    outline-offset: 1px;
+    border-radius: 4px;
+  }
 }
 
-/* Modal entrance animation (replaces tailwindcss-animate plugin classes) */
+/* Animations */
 @keyframes modal-in {
   from {
     opacity: 0;
-    transform: scale(0.96) translateY(8px);
+    transform: scale(0.97) translateY(6px);
   }
   to {
     opacity: 1;
@@ -23,24 +88,71 @@ body {
 }
 
 .animate-modal-in {
-  animation: modal-in 0.2s ease-out;
+  animation: modal-in 0.18s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
-/* Custom Scrollbar */
+@media (prefers-reduced-motion: reduce) {
+  .animate-modal-in,
+  .animate-pulse {
+    animation: none;
+  }
+}
+
+/* Section đích của sub-nav: chừa lại khoảng cho sticky header */
+[id^="section-"] {
+  scroll-margin-top: 72px;
+}
+
+/* Scrollbar */
 ::-webkit-scrollbar {
   width: 6px;
   height: 6px;
 }
 
 ::-webkit-scrollbar-track {
-  background: #0B0F19;
+  background: transparent;
 }
 
 ::-webkit-scrollbar-thumb {
-  background: #1F2937;
-  border-radius: 9999px;
+  background: var(--border-strong);
+  border-radius: 4px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: #374151;
+  background: #94A3B8;
+}
+
+/* Animations */
+@keyframes modal-in {
+  from {
+    opacity: 0;
+    transform: scale(0.97) translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+.animate-modal-in {
+  animation: modal-in 0.18s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* Subtle IDE Scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--bg-app);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--border-strong);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #475569;
 }

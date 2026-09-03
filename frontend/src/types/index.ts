@@ -51,3 +51,103 @@ export interface ClassHeatmapResponseData {
   students: HeatmapStudentRowData[];
   class_averages: number[];
 }
+
+// Tag Completion Analytics & Learning Advisor
+
+export type TagStatus = 'MASTERED' | 'PRACTICING' | 'NEEDS_IMPROVEMENT' | 'UNATTEMPTED';
+
+export type TagWeight = 'small' | 'medium' | 'large';
+
+export interface TagSubmissionStatData {
+  total_submissions: number;
+  ac_count: number;
+  wa_count: number;
+  tle_count: number;
+  other_count: number;
+  ac_rate: number;
+  wa_rate: number;
+  tle_rate: number;
+  primary_error: string | null;
+}
+
+export interface TagMetricItemData {
+  tag_id: number;
+  key: string;
+  name: string;
+  total_problems: number;
+  ac_problems: number;
+  completion_rate: number;
+  tag_weight: TagWeight;
+  submissions_stat: TagSubmissionStatData;
+  status: TagStatus;
+}
+
+export interface TagAnalyticsSummaryData {
+  total_problems_in_system: number;
+  total_solved_unique: number;
+  total_submissions_7d: number;
+}
+
+export interface TagAnalyticsResponseData {
+  user_id: number;
+  student_name: string;
+  summary: TagAnalyticsSummaryData;
+  tags: TagMetricItemData[];
+}
+
+export interface Recent7DaysSummaryData {
+  submissions_count: number;
+  active_tags: string[];
+}
+
+export interface AICommentaryResponseData {
+  commentary: string;
+  recent_7days_summary: Recent7DaysSummaryData;
+  recommended_tags: string[];
+  generated_at: string;
+}
+
+// ==============================================================================
+// F2.1 / F2.2: Teacher Dashboard: Class Heatmap & Student Detail
+// ==============================================================================
+
+export interface ClassSummaryData {
+  id: number;
+  name: string;
+  member_count: number;
+}
+
+export interface StudentSearchItemData {
+  user_id: number;
+  name: string;
+  username: string;
+  points: number;
+  problem_count: number;
+}
+
+export interface StudentBloomScoreData {
+  group_id: number;
+  label: string;
+  score: number;
+}
+
+export interface StudentDetailSummaryData {
+  total_problems_in_system: number;
+  total_solved_unique: number;
+  total_submissions_7d: number;
+}
+
+export interface StudentDetailResponseData {
+  user_id: number;
+  name: string;
+  username: string;
+  points: number;
+  performance_points: number;
+  problem_count: number;
+  display_rank: string;
+  organizations: string[];
+  bloom_scores: StudentBloomScoreData[];
+  alerts: string[];
+  last_submission_at: string | null;
+  summary: StudentDetailSummaryData;
+}
