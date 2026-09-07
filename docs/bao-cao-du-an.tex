@@ -1,0 +1,234 @@
+\documentclass[11pt,a4paper]{article}
+
+\usepackage{fontspec}
+\setmainfont{Times New Roman}
+\setsansfont{Helvetica Neue}
+\setmonofont{Courier New}[Scale=0.92]
+
+\usepackage[margin=2.4cm]{geometry}
+\usepackage{booktabs}
+\usepackage{longtable}
+\usepackage{array}
+\usepackage{enumitem}
+\usepackage{xcolor}
+\usepackage{fancyvrb}
+\usepackage{titlesec}
+\usepackage{hyperref}
+
+\hypersetup{
+    colorlinks=true,
+    linkcolor=blue!45!black,
+    urlcolor=blue!45!black,
+    pdftitle={Bao cao du an tmath AI Diagnostic \& Admin Dashboard},
+    pdfauthor={tmath team}
+}
+
+\definecolor{headgray}{gray}{0.25}
+\titleformat{\section}{\Large\bfseries\sffamily\color{headgray}}{\thesection.}{0.6em}{}
+\titleformat{\subsection}{\large\bfseries\sffamily\color{headgray}}{\thesubsection}{0.6em}{}
+\setlist{itemsep=2pt, topsep=4pt}
+\setlength{\parindent}{0pt}
+\setlength{\parskip}{5pt}
+\renewcommand{\arraystretch}{1.35}
+
+\begin{document}
+
+\begin{center}
+    {\sffamily\LARGE\bfseries Báo cáo dự án}\\[6pt]
+    {\sffamily\Large tmath AI Diagnostic \& Admin Dashboard Service}\\[10pt]
+    {\large Cấu trúc dự án -- Tiến độ -- Phân công phát triển}\\[8pt]
+    \textit{Dũng, Khải}\\[4pt]
+    Ngày 08 tháng 09 năm 2026
+\end{center}
+
+\vspace{4pt}
+\noindent\textbf{Tài liệu tham chiếu:} \path{docs/SOFTWARE_DESIGN_DOCUMENT.md} (SDD v3.1.0), \path{docs/FEATURE_1_TAG_ANALYTICS_SPEC.md} (FEAT-01), \path{docs/WORK_SPLIT_PLAN.md}.
+
+\tableofcontents
+\newpage
+
+%=====================================================================
+\section{Cấu trúc dự án}
+%=====================================================================
+
+\subsection{Tổng quan hệ thống}
+
+Hệ thống là một microservice phục vụ nền tảng tmath Online Judge (DMOJ), gồm hai phần chính: backend API phân tích học lực bằng AI và dashboard web cho học sinh, giáo viên, admin.
+
+\begin{itemize}
+    \item \textbf{Backend:} Python 3.12, FastAPI, SQLAlchemy Async 2.0, aiomysql, kết nối trực tiếp MySQL 8.0 gốc của tmath (backup 10.1 GB, 200 file SQL).
+    \item \textbf{AI Orchestration:} Instructor Framework (structured output Pydantic) + LiteLLM Adapter, chạy trên Ollama local (Qwen2.5-Coder) hoặc Gemini Cloud API.
+    \item \textbf{Frontend:} React 18 + TypeScript + Vite + TailwindCSS + Recharts, component UI kiểu shadcn.
+    \item \textbf{Hạ tầng:} Docker Compose 6 service (MySQL, Redis, Ollama, Open WebUI, backend, frontend), kèm cấu hình GPU NVIDIA CUDA / AMD ROCm.
+\end{itemize}
+
+\subsection{Cây thư mục}
+
+\begin{Verbatim}[frame=single, framesep=4pt, rulecolor=\color{gray!60}]
+tmathcoding-ai/
+├── docker-compose.yml            # Stack: db, redis, ollama, open-webui, backend, frontend
+├── docker-compose.gpu.yml        # Override NVIDIA CUDA
+├── docker-compose.rocm.yml       # Override AMD ROCm
+├── docs/
+│   ├── SOFTWARE_DESIGN_DOCUMENT.md       # SDD v3.1.0
+│   ├── FEATURE_1_TAG_ANALYTICS_SPEC.md   # Đặc tả FEAT-01
+│   └── WORK_SPLIT_PLAN.md                # Kế hoạch phân công
+├── backup/                       # 200 file SQL (10.1 GB)
+├── scripts/
+│   ├── seed_mysql.py             # Import backup vào MySQL
+│   ├── pull_model.py             # Nạp model AI vào Ollama
+│   └── test_llm.py               # Chat CLI thử LLM
+├── backend/
+│   ├── requirements.txt
+│   └── app/
+│       ├── main.py               # FastAPI app + CORS + /health
+│       ├── core/
+│       │   ├── config.py         # Pydantic Settings, đọc .env
+│       │   ├── database.py       # Async engine + session
+│       │   ├── auth.py           # Dev auth qua header X-User-ID
+│       │   └── llm_adapter.py    # Instructor + LiteLLM adapter
+│       ├── models/dmoj.py        # 11 bảng ánh xạ DB thật
+│       ├── schemas/              # Pydantic: analytics, student, ai, teacher
+│       ├── services/
+│       │   ├── tag_analytics_service.py   # FEAT-01: metric theo tag
+│       │   ├── tag_ai_service.py          # AI Advisor hằng ngày
+│       │   ├── skill_tree_service.py      # F1.1 Cây kỹ năng
+│       │   ├── code_doctor_service.py     # F1.2 Code Doctor
+│       │   └── heatmap_service.py         # F2.1/F2.2 Heatmap + chi tiết
+│       └── api/v1/endpoints/     # student.py, teacher.py, admin.py
+└── frontend/
+    ├── vite.config.ts            # Proxy /api -> backend
+    └── src/
+        ├── App.tsx               # App shell + tìm kiếm toàn cục
+        ├── services/api.ts       # Axios API layer
+        ├── types/index.ts        # Kiểu dữ liệu khớp backend
+        ├── pages/                # StudentDashboard, TeacherDashboard
+        └── components/           # SkillTree, BloomRadar, TagCompletionGrid,
+                                  # AIAdvisorCard, CodeDoctorModal, ClassHeatmap...
+\end{Verbatim}
+
+%=====================================================================
+\section{Tiến độ dự án}
+%=====================================================================
+
+Mã nguồn hiện tại đã đi xa hơn mức khởi tạo: các tính năng phía Học sinh và Giáo viên đều có logic thật ở cả backend lẫn frontend. Nguyên nhân hệ thống chưa chạy được nằm ở ba nhóm: môi trường chưa dựng, một số điểm dữ liệu còn gắn cứng, và hai tính năng trong SDD chưa triển khai.
+
+\subsection{Đã hoàn thành}
+
+\begin{longtable}{p{5.6cm} p{2.2cm} p{6.6cm}}
+\toprule
+\textbf{Thành phần} & \textbf{Trạng thái} & \textbf{Ghi chú} \\
+\midrule
+\endhead
+Backend core (config, async MySQL, LLM Adapter Instructor + LiteLLM) & Xong & \path{backend/app/core/} \\
+11 model ánh xạ DB thật tmath (DMOJ) & Xong & \path{models/dmoj.py} \\
+FEAT-01: Tag Analytics + AI Advisor hằng ngày & Xong logic & Có fallback khi LLM lỗi \\
+F1.1 Cây kỹ năng 99 node & Xong logic & Riêng Bloom Radar còn số cứng \\
+F1.2 Code Doctor (Socratic) & Xong logic & Có fallback theo loại lỗi \\
+F2.1 Heatmap 2D + cảnh báo STUCK / GAP / INACTIVE & Xong logic & Dữ liệu Bloom thật \\
+F2.2 Tìm kiếm + chi tiết học sinh & Xong logic & Có modal chi tiết \\
+Frontend: app shell, sidebar, tìm kiếm toàn cục, 2 dashboard & Xong & Biên dịch TypeScript sạch \\
+Hạ tầng: Docker Compose, script seed DB, nạp model & Xong & 200 file SQL backup \\
+\bottomrule
+\end{longtable}
+
+\subsection{Điểm gắn cứng cần thay bằng dữ liệu thật}
+
+\begin{enumerate}
+    \item \textbf{Bloom Radar} của Cây kỹ năng trả về điểm mô phỏng theo số chủ đề (hàm trong \path{skill_tree_service.py}), không phải điểm Bloom thật từ bảng \path{judge_problemgroup}.
+    \item \textbf{Code Doctor} ở giao diện học sinh gọi cứng mã bài nộp \texttt{3447100}, chưa có cơ chế chọn bài nộp lỗi thật.
+    \item \textbf{Admin auto-tag} trả về số liệu cứng (16.491 bài / 4.520 đã tag / 27,4\%), chưa có pipeline thật.
+\end{enumerate}
+
+\subsection{Tính năng còn thiếu theo SDD}
+
+\begin{itemize}
+    \item \textbf{F3.1 Pipeline Auto-Tagging} (Code-Informed Classifier): mới có schema \path{AutoTagResult}, chưa có worker trích đặc trưng từ mã nguồn AC, chưa lưu kết quả vào CSDL.
+    \item \textbf{F1.3 Chế độ tự học} (Independent Learning Mode): chưa có code.
+\end{itemize}
+
+\subsection{Nợ kỹ thuật}
+
+\begin{itemize}
+    \item Redis và Celery khai báo trong requirements và Docker Compose nhưng chưa được sử dụng; cache nhận xét AI đang lưu trong bộ nhớ của tiến trình, mất khi khởi động lại.
+    \item Các endpoint giáo viên chưa kiểm tra quyền: mọi giá trị \texttt{org\_id} / \texttt{teacher\_id} đều đọc được dữ liệu.
+    \item Chưa có bộ kiểm thử tự động (pytest).
+    \item Môi trường chạy thật chưa dựng: dependencies Python chưa cài trên máy, Docker stack chưa chạy, DB chưa seed, model Ollama chưa nạp.
+\end{itemize}
+
+
+
+%=====================================================================
+\section{Phân công phát triển}
+%=====================================================================
+
+Hai thành viên \textbf{Dũng} và \textbf{Khải} đều là fullstack. Chia việc theo domain dọc: mỗi người chịu trách nhiệm toàn bộ backend, frontend và kiểm thử của domain mình để hạn chế xung đột khi gộp mã nguồn.
+
+\subsection{Milestone 0 chung: dựng môi trường, chạy thật (1--2 ngày)}
+
+\begin{longtable}{p{1.1cm} p{9.2cm} p{4.1cm}}
+\toprule
+\textbf{Mã} & \textbf{Công việc} & \textbf{Phụ trách} \\
+\midrule
+\endhead
+M0.1 & Khởi chạy Docker Compose, seed 10.1 GB backup, nạp model Ollama theo README & Cả hai (mỗi người một bộ môi trường) \\
+M0.2 & Sửa \path{docker-compose.yml} và các script seed / nạp model nếu lỗi; cập nhật README & \textbf{Khải}, Dũng review \\
+M0.3 & Hướng dẫn chạy dev nhẹ không cần full Docker: container db + redis + ollama, backend chạy uvicorn local & \textbf{Dũng}, Khải review \\
+M0.4 & Smoke test: \path{/health}, 4 API học sinh, 5 API giáo viên, 2 dashboard hiển thị đủ dữ liệu & Cả hai \\
+\bottomrule
+\end{longtable}
+
+\subsection{Dũng --- Domain Học sinh và AI cá nhân hóa}
+
+\begin{longtable}{p{1.1cm} p{11.9cm} p{1.4cm}}
+\toprule
+\textbf{Mã} & \textbf{Công việc} & \textbf{Tuần} \\
+\midrule
+\endhead
+A1 & \textbf{Bloom Radar thật:} tính điểm Bloom từ \path{judge_problem.group_id} theo \path{BLOOM\_GROUP\_MAP} (4=A, 5=B, 6=C, 7=D, 8=E, 13=F); sửa \path{skill_tree_service.py}, \path{schemas/student.py}, \path{BloomRadar.tsx} & 1 \\
+A2 & \textbf{Code Doctor thật:} thêm API liệt kê bài nộp lỗi gần đây (WA / TLE / RTE, join \path{judge_submissionsource}); thay nút mock bằng danh sách chọn bài nộp, có trạng thái rỗng & 2 \\
+A3 & \textbf{Cache Redis cho AI Advisor:} thay bộ nhớ trong tiến trình bằng key \texttt{ai\_commentary:\{user\_id\}:\{ngày\}}; \texttt{force\_refresh} vẫn xóa cache & 3 \\
+A4 & \textbf{F1.3 Chế độ tự học:} gợi ý lộ trình dựa trên tag yếu nhất từ FEAT-01 (trạng thái NEEDS\_IMPROVEMENT / UNATTEMPTED); 1 endpoint mới + 1 section mới trong StudentDashboard & 3--4 \\
+A5 & \textbf{Chất lượng:} pytest cho 3 service phía học sinh; audit giao diện theo ANTISLOP.md & 4 \\
+\bottomrule
+\end{longtable}
+
+\subsection{Khải --- Domain Giáo viên, Admin và Pipeline AI}
+
+\begin{longtable}{p{1.1cm} p{11.9cm} p{1.4cm}}
+\toprule
+\textbf{Mã} & \textbf{Công việc} & \textbf{Tuần} \\
+\midrule
+\endhead
+B1 & \textbf{F3.1 Pipeline Auto-Tagging thật:} tạo bảng \path{judge_problem_ai_tag} lưu kết quả; trích đặc trưng từ mã nguồn AC (dfs/bfs/queue, dp, segment\_tree, gcd, sàng số, giới hạn N) theo SDD mục 4.3 và 6; gọi LLM qua schema \path{AutoTagResult}; chạy batch bằng BackgroundTasks; status đọc từ DB & 1--2 \\
+B2 & \textbf{Trang Admin:} thêm tab mới trong AppSidebar với thanh tiến độ, nút chạy batch, bảng 10 bài được tag gần nhất & 2 \\
+B3 & \textbf{Phân quyền giáo viên:} kiểm tra quyền quản lý lớp từ \path{judge_organization_admins} (hoặc super admin) trước khi trả dữ liệu; gom vào dependency riêng để về sau cắm JWT theo SDD mục 7 & 2--3 \\
+B4 & \textbf{Chất lượng và hạ tầng:} pytest cho heatmap (điểm Bloom, 3 loại cảnh báo) và endpoint giáo viên; healthcheck cho service backend trong Docker Compose & 3 \\
+\bottomrule
+\end{longtable}
+
+\subsection{Quy tắc phối hợp}
+
+\begin{enumerate}
+    \item \textbf{Hợp đồng API:} \path{app/schemas/*.py} và \path{frontend/src/types/index.ts} phải đồng bộ; ai đổi một phía phải đổi cả hai phía trong cùng commit và nêu trong pull request.
+    \item \textbf{Ranh giới file:} Dũng sở hữu các file phía student; Khải sở hữu teacher, admin, heatmap, auto-tag. File chung (\path{router.py}, \path{App.tsx}, \path{AppSidebar.tsx}, \path{types/index.ts}) chỉ được thêm, không sửa phần của người kia.
+    \item \textbf{Nhánh và review:} \texttt{feat/student-*} (Dũng), \texttt{feat/teacher-admin-*} (Khải), \texttt{infra/*} (Khải ở M0); mọi pull request vào main cần review của người còn lại.
+    \item \textbf{Thiết kế:} mọi thay đổi giao diện theo \path{DESIGN.md}, qua audit \path{ANTISLOP.md}; văn bản giao diện tiếng Việt ngắn gọn.
+    \item \textbf{Demo hàng tuần:} mỗi người demo domain của mình trên dữ liệu thật; lỗi ngoài domain ghi issue cho đúng người phụ trách.
+\end{enumerate}
+
+\subsection{Lộ trình tổng hợp}
+
+\begin{longtable}{p{1.2cm} p{6.8cm} p{6.4cm}}
+\toprule
+\textbf{Tuần} & \textbf{Dũng} & \textbf{Khải} \\
+\midrule
+\endhead
+1 & M0 + A1 (Bloom Radar thật) & M0 + B1 (Auto-Tagging pipeline thật) \\
+2 & A2 (Code Doctor thật) & B1 hoàn tất + B2 (trang Admin) + B3 \\
+3 & A3 (Redis cache) + A4 (Chế độ tự học) & B3 hoàn tất + B4 (pytest, healthcheck) \\
+4 & A4 hoàn tất + A5 (kiểm thử, audit) & Xử lý nợ kỹ thuật, tối ưu hiệu năng \\
+\bottomrule
+\end{longtable}
+
+\end{document}
