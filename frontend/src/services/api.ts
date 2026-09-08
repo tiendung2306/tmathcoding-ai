@@ -5,7 +5,11 @@ import {
   ClassHeatmapResponseData,
   TagAnalyticsResponseData,
   AICommentaryResponseData,
-  StudentDetailResponseData
+  StudentDetailResponseData,
+  FailedSubmissionItem,
+  SubmissionDetailResponseData,
+  JobCreateResponseData,
+  JobStatusResponseData
 } from '../types';
 
 const API_BASE_URL = '/api/v1';
@@ -31,10 +35,28 @@ export const fetchAICommentary = async (userId: number, forceRefresh: boolean = 
   return res.data;
 };
 
-export const requestCodeDoctor = async (submissionId: number): Promise<CodeDoctorResponseData> => {
+export const requestCodeDoctor = async (submissionId: number, forceRefresh: boolean = false): Promise<JobCreateResponseData> => {
   const res = await axios.post(`${API_BASE_URL}/student/code-doctor/diagnose`, {
-    submission_id: submissionId
+    submission_id: submissionId,
+    force_refresh: forceRefresh
   });
+  return res.data;
+};
+
+export const fetchJobStatus = async (jobId: string): Promise<JobStatusResponseData> => {
+  const res = await axios.get(`${API_BASE_URL}/jobs/${jobId}`);
+  return res.data;
+};
+
+export const fetchFailedSubmissions = async (userId: number): Promise<FailedSubmissionItem[]> => {
+  const res = await axios.get(`${API_BASE_URL}/student/submissions/failed`, {
+    params: { user_id: userId }
+  });
+  return res.data;
+};
+
+export const fetchSubmissionDetail = async (submissionId: number): Promise<SubmissionDetailResponseData> => {
+  const res = await axios.get(`${API_BASE_URL}/student/submissions/${submissionId}/detail`);
   return res.data;
 };
 

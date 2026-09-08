@@ -1,10 +1,52 @@
+from typing import Dict
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
 from app.models.dmoj import JudgeSubmission, JudgeProblem, JudgeProblemTypes, JudgeProblemtype, JudgeProfile
 from app.schemas.student import SkillTreeResponse, SkillTreeNode, BloomRadar
-from fastapi import HTTPException
+
+# Mapping Bloom theo dữ liệu THẬT của tmath (bảng judge_problemgroup):
+# 4=A(Nhớ), 5=B(Hiểu), 6=C(Vận dụng), 7=D(Phân tích), 8=E(Đánh giá), 13=F(Đặc biệt).
+BLOOM_FIELD_MAP: Dict[int, str] = {
+    4: "A_Nho",
+    5: "B_Hieu",
+    6: "C_VanDung",
+    7: "D_PhanTich",
+    8: "E_DanhGia",
+    13: "F_DacBiet",
+}
+
 
 class SkillTreeService:
+    @staticmethod
+    async def _get_bloom_totals(db: AsyncSession) -> Dict[int, int]:
+        """Đếm tổng số bài tập duy nhất theo từng mức Bloom trong toàn hệ thống."""
+        stmt = (
+            select(JudgeProblem.group_id, func.count(func.distinct(JudgeProblem.id)))
+            .where(JudgeProblem.group_id.in_(list(BLOOM_FIELD_MAP.keys())))
+            .group_by(JudgeProblem.group_id)
+        )
+        res = await db.execute(stmt)
+        return {row[0]: row[1] for row in res.all()}
+
+    @staticmethod
+    async def _get_student_bloom_ac(user_id: int, db: AsyncSession) -> Dict[int, int]:
+        """Đếm số bài tập AC duy nhất của học sinh theo từng mức Bloom."""
+        stmt = (
+            select(
+                JudgeProblem.group_id,
+                func.count(func.distinct(JudgeSubmission.problem_id))
+            )
+            .join(JudgeProblem, JudgeProblem.id == JudgeSubmission.problem_id)
+            .where(
+                JudgeSubmission.user_id == user_id,
+                JudgeSubmission.result == "AC",
+                JudgeProblem.group_id.in_(list(BLOOM_FIELD_MAP.keys()))
+            )
+            .group_by(JudgeProblem.group_id)
+        )
+        res = await db.execute(stmt)
+        return {row[0]: row[1] for row in res.all()}
+
     @staticmethod
     async def get_student_skill_tree(user_id: int, db: AsyncSession) -> SkillTreeResponse:
         # Fetch profile
@@ -56,15 +98,18 @@ class SkillTreeService:
                 )
             )
 
-        # Bloom Radar default scores
-        radar = BloomRadar(
-            A_Nho=85.0 if len(topic_ac_map) > 0 else 0.0,
-            B_Hieu=70.0 if len(topic_ac_map) > 2 else 0.0,
-            C_VanDung=50.0 if len(topic_ac_map) > 5 else 0.0,
-            D_PhanTich=30.0 if len(topic_ac_map) > 10 else 0.0,
-            E_DanhGia=10.0 if len(topic_ac_map) > 15 else 0.0,
-            F_DacBiet=0.0
-        )
+        # Tính toán điểm Bloom Radar thật từ DB (khớp cách tính của Heatmap phía giáo viên)
+        bloom_totals = await SkillTreeService._get_bloom_totals(db)
+        student_bloom_ac = await SkillTreeService._get_student_bloom_ac(user_id, db)
+
+        radar_scores = {}
+        for group_id, field_name in BLOOM_FIELD_MAP.items():
+            total = bloom_totals.get(group_id, 0)
+            ac = student_bloom_ac.get(group_id, 0)
+            score = round((ac / total) * 100.0, 1) if total > 0 else 0.0
+            radar_scores[field_name] = min(100.0, score)
+
+        radar = BloomRadar(**radar_scores)
 
         return SkillTreeResponse(
             user_id=user_id,
@@ -72,5 +117,6 @@ class SkillTreeService:
             bloom_radar=radar,
             skill_tree_nodes=nodes
         )
+
 
 skill_tree_service = SkillTreeService()

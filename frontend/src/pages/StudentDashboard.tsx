@@ -1,9 +1,10 @@
 import React, { useEffect, useState } from 'react';
-import { fetchSkillTree, fetchTagAnalytics, fetchAICommentary, requestCodeDoctor } from '../services/api';
-import { SkillTreeResponseData, CodeDoctorResponseData, TagAnalyticsResponseData, AICommentaryResponseData } from '../types';
+import { fetchSkillTree, fetchTagAnalytics, fetchAICommentary, requestCodeDoctor, fetchFailedSubmissions } from '../services/api';
+import { SkillTreeResponseData, CodeDoctorResponseData, TagAnalyticsResponseData, AICommentaryResponseData, FailedSubmissionItem } from '../types';
 import { BloomRadar } from '../components/BloomRadar';
 import { SkillTree } from '../components/SkillTree';
 import { CodeDoctorModal } from '../components/CodeDoctorModal';
+import { FailedSubmissionsList } from '../components/FailedSubmissionsList';
 import { AIAdvisorCard } from '../components/AIAdvisorCard';
 import { TagCompletionGrid } from '../components/TagCompletionGrid';
 import { ErrorPanel } from '../components/ErrorPanel';
@@ -27,7 +28,8 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({ studentId })
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
   const [doctorModalData, setDoctorModalData] = useState<CodeDoctorResponseData | null>(null);
-  const [doctorLoading, setDoctorLoading] = useState<boolean>(false);
+  const [failedSubmissions, setFailedSubmissions] = useState<FailedSubmissionItem[]>([]);
+  const [diagnosingId, setDiagnosingId] = useState<number | null>(null);
 
   useEffect(() => {
     loadData();
@@ -38,9 +40,10 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({ studentId })
     setError(null);
     loadAICommentary(false);
     try {
-      const [skillRes, tagRes] = await Promise.allSettled([
+      const [skillRes, tagRes, failedRes] = await Promise.allSettled([
         fetchSkillTree(studentId),
         fetchTagAnalytics(studentId),
+        fetchFailedSubmissions(studentId),
       ]);
       if (skillRes.status === 'fulfilled') {
         setData(skillRes.value);
@@ -48,6 +51,7 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({ studentId })
         setError('Không tải được sơ đồ kỹ năng của học sinh. Vui lòng thử lại sau.');
       }
       if (tagRes.status === 'fulfilled') setTagData(tagRes.value);
+      if (failedRes.status === 'fulfilled') setFailedSubmissions(failedRes.value);
     } catch (err) {
       console.error(err);
       setError('Không tải được dữ liệu. Vui lòng thử lại sau.');
@@ -72,15 +76,17 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({ studentId })
     }
   };
 
-  const handleDiagnoseMock = async () => {
-    setDoctorLoading(true);
+  const handleDiagnose = async (submissionId: number) => {
+    setDiagnosingId(submissionId);
     try {
-      const res = await requestCodeDoctor(3447100);
-      setDoctorModalData(res);
+      const res = await requestCodeDoctor(submissionId);
+      if (res.status === 'COMPLETED' && res.result?.diagnosis) {
+        setDoctorModalData(res.result);
+      }
     } catch (err) {
       console.error(err);
     } finally {
-      setDoctorLoading(false);
+      setDiagnosingId(null);
     }
   };
 
@@ -131,16 +137,25 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({ studentId })
           </div>
 
           <div className="flex items-center gap-3">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={handleDiagnoseMock}
-              disabled={doctorLoading}
-              className="gap-2 h-8 px-3 text-xs font-medium"
-            >
-              <Stethoscope className="w-3.5 h-3.5 text-red-600" />
-              {doctorLoading ? 'Đang chẩn đoán...' : 'Chẩn đoán bài nộp'}
-            </Button>
+            {failedSubmissions.length > 0 ? (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  const el = document.getElementById('section-failed-submissions');
+                  el?.scrollIntoView({ behavior: 'smooth' });
+                }}
+                className="gap-2 h-8 px-3 text-xs font-medium border-red-200 text-red-700 bg-red-50 hover:bg-red-100"
+              >
+                <Stethoscope className="w-3.5 h-3.5 text-red-600" />
+                <span>{failedSubmissions.length} bài cần chẩn đoán</span>
+              </Button>
+            ) : (
+              <div className="flex items-center gap-1.5 text-xs text-text-secondary">
+                <span className="inline-block w-2 h-2 rounded-full bg-emerald-500" />
+                <span>Không có bài nộp lỗi</span>
+              </div>
+            )}
           </div>
         </CardContent>
       </Card>
@@ -179,6 +194,16 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({ studentId })
         <div id="section-skill-tree" className="lg:col-span-2">
           <SkillTree nodes={data.skill_tree_nodes} />
         </div>
+      </div>
+
+      {/* Failed Submissions (Code Doctor Selection) */}
+      <div id="section-failed-submissions">
+        <FailedSubmissionsList
+          submissions={failedSubmissions}
+          loading={loading}
+          onDiagnose={handleDiagnose}
+          diagnosingId={diagnosingId}
+        />
       </div>
 
       {/* Tag Completion Grid */}

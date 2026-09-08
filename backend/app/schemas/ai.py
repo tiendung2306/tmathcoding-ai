@@ -3,12 +3,14 @@ from typing import List, Optional
 
 class CodeDoctorDiagnosis(BaseModel):
     error_category: str = Field(description="Loại lỗi: TIME_LIMIT_EXCEEDED, WRONG_ANSWER, RUNTIME_ERROR, COMPILE_ERROR")
-    summary: str = Field(description="Tóm tắt nguyên nhân lỗi trong bài nộp của học sinh (1-2 câu)")
-    guiding_question: str = Field(description="Câu hỏi gợi mở theo phương pháp Socratic để học sinh tự suy nghĩ vị trí dòng code sai")
-    actionable_hint: str = Field(description="Gợi ý hướng tiếp cận tiếp theo mà KHÔNG cung cấp code giải")
+    advice: str = Field(description="Đoạn văn duy nhất nhận xét và chẩn đoán chính xác nguyên nhân lỗi của bài nộp")
+    summary: Optional[str] = Field(default=None, description="Tóm tắt ngắn gọn")
+    guiding_question: Optional[str] = Field(default=None, description="Câu hỏi gợi mở (nếu có)")
+    actionable_hint: Optional[str] = Field(default=None, description="Gợi ý hướng tiếp cận (nếu có)")
 
 class CodeDoctorRequest(BaseModel):
     submission_id: int
+    force_refresh: bool = Field(default=False, description="Đặt True nếu muốn ép LLM phân tích lại, bỏ qua cache")
 
 class CodeDoctorResponse(BaseModel):
     submission_id: int

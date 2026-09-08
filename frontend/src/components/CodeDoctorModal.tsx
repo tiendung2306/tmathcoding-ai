@@ -42,37 +42,10 @@ export const CodeDoctorModal: React.FC<CodeDoctorModalProps> = ({ data, onClose 
             </div>
           </DialogHeader>
 
-          <div className="space-y-3.5 py-1 text-xs">
-            {/* Error Summary */}
-            <div className="rounded-md border border-red-200 bg-red-50 p-3.5 space-y-1">
-              <div className="flex items-center gap-2 text-red-700 font-medium">
-                <AlertCircle className="w-3.5 h-3.5 flex-shrink-0" />
-                <span>Bản chất sự cố</span>
-              </div>
-              <p className="text-text-secondary leading-relaxed pl-5">
-                {data.diagnosis.summary}
-              </p>
-            </div>
-
-            {/* Guiding Question Box */}
-            <div className="rounded-md border border-amber-200 bg-amber-50 p-3.5 space-y-1.5">
-              <div className="flex items-center gap-2 text-amber-700 font-medium">
-                <HelpCircle className="w-3.5 h-3.5 flex-shrink-0" />
-                <span>Câu hỏi gợi mở tư duy</span>
-              </div>
-              <p className="text-amber-900 leading-relaxed pl-5">
-                "{data.diagnosis.guiding_question}"
-              </p>
-            </div>
-
-            {/* Actionable Hint */}
-            <div className="rounded-md border border-blue-200 bg-blue-50 p-3.5 space-y-1">
-              <div className="flex items-center gap-2 text-blue-700 font-medium">
-                <Lightbulb className="w-3.5 h-3.5 flex-shrink-0" />
-                <span>Hướng dẫn xử lý</span>
-              </div>
-              <p className="text-text-primary leading-relaxed pl-5">
-                {data.diagnosis.actionable_hint}
+          <div className="py-2 text-xs">
+            <div className="rounded-md border border-border bg-card-subtle/70 p-4">
+              <p className="text-xs sm:text-[13px] text-text-primary leading-relaxed whitespace-pre-wrap font-sans">
+                {data.diagnosis.advice || data.diagnosis.summary}
               </p>
             </div>
           </div>

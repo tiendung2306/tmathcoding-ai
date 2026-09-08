@@ -8,6 +8,7 @@ import {
   ChevronLeft,
   ChevronRight,
   BookOpen,
+  Stethoscope,
   X
 } from "lucide-react";
 import { cn } from "../../lib/utils";
@@ -48,6 +49,11 @@ export const AppSidebar: React.FC<AppSidebarProps> = ({
       id: "tag-analytics",
       label: "Thống kê chuyên đề",
       icon: Tags,
+    },
+    {
+      id: "failed-submissions",
+      label: "Bài nộp chưa đạt",
+      icon: Stethoscope,
     },
   ];
 

@@ -54,7 +54,7 @@ export function App() {
 
   const handleSectionClick = (section: string) => {
     const target = section === 'students' ? 'heatmap' : section;
-    const tab = ['overview', 'skill-tree', 'tag-analytics'].includes(section)
+    const tab = ['overview', 'skill-tree', 'tag-analytics', 'failed-submissions'].includes(section)
       ? 'student'
       : 'teacher';
     setActiveTab(tab);

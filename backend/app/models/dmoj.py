@@ -113,3 +113,28 @@ class JudgeProblemGroup(Base):
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String(20))
     full_name = Column(String(100))
+
+class JudgeLanguage(Base):
+    __tablename__ = "judge_language"
+
+    id = Column(Integer, primary_key=True, index=True)
+    key = Column(String(10), unique=True)
+    name = Column(String(20))
+    common_name = Column(String(10))
+
+class JudgeSubmissionTestcase(Base):
+    __tablename__ = "judge_submissiontestcase"
+
+    id = Column(Integer, primary_key=True, index=True)
+    case = Column(Integer)
+    status = Column(String(3))
+    time = Column(Float)
+    memory = Column(Float)
+    points = Column(Float)
+    total = Column(Float)
+    batch = Column(Integer)
+    feedback = Column(String(50))
+    extended_feedback = Column(Text)
+    output = Column(Text)
+    submission_id = Column(Integer, ForeignKey("judge_submission.id"), index=True)
+

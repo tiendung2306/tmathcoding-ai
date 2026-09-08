@@ -29,6 +29,7 @@ def stream_import_sql(file_path: str, mysql_host: str, mysql_port: int, mysql_us
         "-h", mysql_host,
         "-P", str(mysql_port),
         "-u", mysql_user,
+        "--skip-ssl",
         "--default-character-set=utf8mb4",
         db_name
     ]
@@ -80,6 +81,7 @@ def seed_database(
         "-h", mysql_host,
         "-P", str(mysql_port),
         "-u", mysql_user,
+        "--skip-ssl",
         "-e", f"CREATE DATABASE IF NOT EXISTS `{db_name}` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;"
     ]
     res = subprocess.run(create_db_cmd, env=env)

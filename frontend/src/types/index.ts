@@ -25,9 +25,10 @@ export interface SkillTreeResponseData {
 
 export interface CodeDoctorDiagnosisData {
   error_category: string;
-  summary: string;
-  guiding_question: string;
-  actionable_hint: string;
+  advice?: string;
+  summary?: string;
+  guiding_question?: string;
+  actionable_hint?: string;
 }
 
 export interface CodeDoctorResponseData {
@@ -35,6 +36,72 @@ export interface CodeDoctorResponseData {
   user_id: number;
   problem_name: string;
   diagnosis: CodeDoctorDiagnosisData;
+}
+
+export type JobStatus = 'PENDING' | 'PROCESSING' | 'COMPLETED' | 'FAILED';
+
+export interface JobCreateResponseData {
+  job_id: string;
+  status: JobStatus;
+  message: string;
+  result?: any;
+}
+
+export interface JobStatusResponseData {
+  job_id: string;
+  job_type: string;
+  status: JobStatus;
+  progress: number;
+  result?: any;
+  error?: string | null;
+  created_at: string;
+  updated_at: string;
+  started_at?: string | null;
+  deadline_at?: string | null;
+}
+
+export interface FailedSubmissionItem {
+  submission_id: number;
+  problem_id: number;
+  problem_code: string;
+  problem_name: string;
+  result: string;
+  status?: string;
+  date?: string;
+  points: number;
+  language_id?: number;
+}
+
+export interface TestCaseDetailItem {
+  case: number;
+  status: string;
+  time?: number | null;
+  memory?: number | null;
+  points?: number | null;
+  total?: number | null;
+  feedback?: string | null;
+  output?: string | null;
+}
+
+export interface SubmissionDetailResponseData {
+  submission_id: number;
+  user_id: number;
+  problem_id: number;
+  problem_code: string;
+  problem_name: string;
+  problem_description: string;
+  time_limit: number;
+  memory_limit: number;
+  problem_points: number;
+  result: string;
+  status?: string | null;
+  date?: string | null;
+  time?: number | null;
+  memory?: number | null;
+  points: number;
+  language_name: string;
+  source_code: string;
+  testcases: TestCaseDetailItem[];
 }
 
 export interface HeatmapStudentRowData {
