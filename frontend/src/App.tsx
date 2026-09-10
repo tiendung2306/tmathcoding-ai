@@ -3,21 +3,78 @@ import { AppSidebar } from './components/layout/AppSidebar';
 import { Header } from './components/layout/Header';
 import { StudentDashboard } from './pages/StudentDashboard';
 import { TeacherDashboard } from './pages/TeacherDashboard';
-import { searchStudents } from './services/api';
+import { AdminDashboard } from './pages/AdminDashboard';
+import { searchStudents, fetchTeacherClasses, fetchClassStudents } from './services/api';
+import { ClassSummaryData, ClassStudentItemData } from './types';
 import { Badge } from './components/ui/badge';
 import { Card } from './components/ui/card';
 import { X, Search } from 'lucide-react';
 
 export function App() {
-  const [activeTab, setActiveTab] = useState<'student' | 'teacher'>('student');
-  const [selectedStudentId, setSelectedStudentId] = useState<number>(1024);
-  const [selectedStudentName, setSelectedStudentName] = useState<string>('User 1024');
+  const [activeTab, setActiveTab] = useState<'student' | 'teacher' | 'admin'>('student');
+  const [classes, setClasses] = useState<ClassSummaryData[]>([]);
+  const [selectedOrgId, setSelectedOrgId] = useState<number>(19);
+  const [classStudents, setClassStudents] = useState<ClassStudentItemData[]>([]);
+  const [studentsLoading, setStudentsLoading] = useState<boolean>(false);
+
+  const [selectedStudentId, setSelectedStudentId] = useState<number>(7);
+  const [selectedStudentName, setSelectedStudentName] = useState<string>('Nguyễn Khắc Tùng Lâm');
+  const [teacherViewMode, setTeacherViewMode] = useState<'roster' | 'heatmap'>('roster');
+
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [searchResults, setSearchResults] = useState<any[]>([]);
   const [, setIsSearching] = useState<boolean>(false);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState<boolean>(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState<boolean>(false);
   const [pendingSection, setPendingSection] = useState<string | null>(null);
+
+  // Load classes on initial mount
+  useEffect(() => {
+    loadClasses();
+  }, []);
+
+  // Load class students whenever selectedOrgId changes
+  useEffect(() => {
+    if (selectedOrgId) {
+      loadStudentsOfClass(selectedOrgId);
+    }
+  }, [selectedOrgId]);
+
+  const loadClasses = async () => {
+    try {
+      const list = await fetchTeacherClasses();
+      setClasses(list);
+      if (list.length > 0) {
+        const currentOrgExists = list.some((c: ClassSummaryData) => c.id === selectedOrgId);
+        if (!currentOrgExists) {
+          setSelectedOrgId(list[0].id);
+        }
+      }
+    } catch (err) {
+      console.error('Không tải được danh sách lớp:', err);
+    }
+  };
+
+  const loadStudentsOfClass = async (orgId: number) => {
+    setStudentsLoading(true);
+    try {
+      const students = await fetchClassStudents(orgId);
+      setClassStudents(students);
+
+      // If current student is not in this new class, select the first student of the class
+      if (students.length > 0) {
+        const studentExists = students.some((s) => s.user_id === selectedStudentId);
+        if (!studentExists) {
+          setSelectedStudentId(students[0].user_id);
+          setSelectedStudentName(students[0].name);
+        }
+      }
+    } catch (err) {
+      console.error('Không tải được danh sách học sinh theo lớp:', err);
+    } finally {
+      setStudentsLoading(false);
+    }
+  };
 
   // Close search on Escape key
   useEffect(() => {
@@ -53,13 +110,33 @@ export function App() {
   const onCloseMobileRef = () => setIsMobileMenuOpen(false);
 
   const handleSectionClick = (section: string) => {
-    const target = section === 'students' ? 'heatmap' : section;
-    const tab = ['overview', 'skill-tree', 'tag-analytics', 'failed-submissions'].includes(section)
-      ? 'student'
-      : 'teacher';
-    setActiveTab(tab);
-    setPendingSection(target);
-    onCloseMobileRef();
+    if (section === 'auto-tag') {
+      setActiveTab('admin');
+      onCloseMobileRef();
+      return;
+    }
+
+    if (section === 'roster' || section === 'students') {
+      setActiveTab('teacher');
+      setTeacherViewMode('roster');
+      setPendingSection('roster');
+      onCloseMobileRef();
+      return;
+    }
+
+    if (section === 'heatmap') {
+      setActiveTab('teacher');
+      setTeacherViewMode('heatmap');
+      setPendingSection('heatmap');
+      onCloseMobileRef();
+      return;
+    }
+
+    if (['overview', 'skill-tree', 'tag-analytics', 'failed-submissions'].includes(section)) {
+      setActiveTab('student');
+      setPendingSection(section);
+      onCloseMobileRef();
+    }
   };
 
   const handleSearchSubmit = async () => {
@@ -75,13 +152,15 @@ export function App() {
     }
   };
 
-  const handleSelectStudentFromSearch = (userId: number, name?: string) => {
+  const handleSelectStudent = (userId: number, name?: string) => {
     setSelectedStudentId(userId);
     if (name) setSelectedStudentName(name);
     setActiveTab('student');
     setSearchResults([]);
     setSearchQuery('');
   };
+
+  const currentClassName = classes.find((c) => c.id === selectedOrgId)?.name;
 
   return (
     <div className="min-h-screen bg-app text-text-primary flex">
@@ -101,8 +180,13 @@ export function App() {
         {/* Top Header */}
         <Header
           activeTab={activeTab}
+          classes={classes}
+          selectedOrgId={selectedOrgId}
+          onSelectOrgId={(id) => setSelectedOrgId(id)}
+          classStudents={classStudents}
           studentId={selectedStudentId}
           studentName={selectedStudentName}
+          onSelectStudent={handleSelectStudent}
           searchQuery={searchQuery}
           setSearchQuery={setSearchQuery}
           onSearchSubmit={handleSearchSubmit}
@@ -142,11 +226,11 @@ export function App() {
                     key={st.user_id}
                     role="button"
                     tabIndex={0}
-                    onClick={() => handleSelectStudentFromSearch(st.user_id, st.name)}
+                    onClick={() => handleSelectStudent(st.user_id, st.name)}
                     onKeyDown={(e) => {
                       if (e.key === 'Enter' || e.key === ' ') {
                         e.preventDefault();
-                        handleSelectStudentFromSearch(st.user_id, st.name);
+                        handleSelectStudent(st.user_id, st.name);
                       }
                     }}
                     className="p-2.5 bg-card-subtle/50 hover:bg-card-subtle border border-border hover:border-border-strong rounded-md cursor-pointer transition-colors flex items-center justify-between focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary"
@@ -175,11 +259,24 @@ export function App() {
         {/* Page Views */}
         <main className="flex-1 overflow-y-auto">
           {activeTab === 'student' ? (
-            <StudentDashboard studentId={selectedStudentId} />
-          ) : (
-            <TeacherDashboard
-              onSelectStudent={(id, name) => handleSelectStudentFromSearch(id, name)}
+            <StudentDashboard
+              studentId={selectedStudentId}
+              classStudents={classStudents}
+              currentClassName={currentClassName}
+              onSelectStudent={handleSelectStudent}
             />
+          ) : activeTab === 'teacher' ? (
+            <TeacherDashboard
+              selectedOrgId={selectedOrgId}
+              onSelectOrgId={(id) => setSelectedOrgId(id)}
+              classes={classes}
+              classStudents={classStudents}
+              studentsLoading={studentsLoading}
+              onSelectStudent={(id, name) => handleSelectStudent(id, name)}
+              initialViewMode={teacherViewMode}
+            />
+          ) : (
+            <AdminDashboard />
           )}
         </main>
       </div>

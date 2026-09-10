@@ -1,8 +1,15 @@
 from typing import List
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
 from app.core.database import get_db
-from app.schemas.student import SkillTreeResponse, FailedSubmissionItem, SubmissionDetailResponse
+from app.models.dmoj import JudgeSubmission, JudgeProblem
+from app.schemas.student import (
+    SkillTreeResponse,
+    StudentRecentSubmission,
+    FailedSubmissionItem,
+    SubmissionDetailResponse,
+)
 from app.schemas.ai import CodeDoctorRequest, CodeDoctorResponse
 from app.schemas.jobs import JobCreateResponse
 from app.schemas.analytics import StudentTagAnalyticsResponse, AICommentaryResponse
@@ -23,10 +30,11 @@ router = APIRouter()
 @router.get("/skill-tree", response_model=SkillTreeResponse)
 async def get_student_skill_tree(
     user_id: int = Query(1, description="ID của học sinh cần xem (Mặc định 1 khi test độc lập)"),
+    time_range: str = Query("all", pattern="^(1d|7d|30d|1y|all)$", description="Mốc thời gian đánh giá (7d, 30d, 1y, all)"),
     db: AsyncSession = Depends(get_db)
 ):
-    """Fetch 99-Node Skill Tree & Bloom Radar for a student."""
-    return await skill_tree_service.get_student_skill_tree(user_id, db)
+    """Fetch 99-Node Skill Tree & 8-Pillar Algorithm Radar for a student according to time_range."""
+    return await skill_tree_service.get_student_skill_tree(user_id, db, time_range=time_range)
 
 @router.post("/code-doctor/diagnose", response_model=JobCreateResponse)
 async def diagnose_code(
@@ -60,16 +68,58 @@ async def get_submission_detail(
 @router.get("/analytics/tags", response_model=StudentTagAnalyticsResponse)
 async def get_student_tag_analytics(
     user_id: int = Query(1, description="ID của học sinh cần xem thống kê Tag (Mặc định 1 khi test độc lập)"),
+    time_range: str = Query("all", pattern="^(1d|7d|30d|1y|all)$", description="Mốc thời gian đánh giá (7d, 30d, 1y, all)"),
     db: AsyncSession = Depends(get_db)
 ):
-    """Fetch tag completion metrics and 7-day submission statistics for a student."""
-    return await tag_analytics_service.get_student_tag_analytics(user_id, db)
+    """Fetch tag completion metrics and submission statistics for a student according to time_range."""
+    return await tag_analytics_service.get_student_tag_analytics(user_id, db, time_range=time_range)
 
 @router.get("/analytics/ai-commentary", response_model=AICommentaryResponse)
 async def get_student_ai_commentary(
     user_id: int = Query(1, description="ID của học sinh cần nhận xét AI (Mặc định 1 khi test độc lập)"),
+    time_range: str = Query("all", pattern="^(1d|7d|30d|1y|all)$", description="Mốc thời gian đánh giá (7d, 30d, 1y, all)"),
     force_refresh: bool = Query(False, description="Set True để ép LLM sinh nhận xét mới"),
     db: AsyncSession = Depends(get_db)
 ):
-    """Fetch daily personalized AI commentary and recommendations for a student."""
-    return await tag_ai_service.get_daily_ai_commentary(user_id, db, force_refresh=force_refresh)
+    """Fetch personalized AI commentary and recommendations for a student according to time_range."""
+    return await tag_ai_service.get_daily_ai_commentary(user_id, db, time_range=time_range, force_refresh=force_refresh)
+
+@router.get("/submissions/recent", response_model=list[StudentRecentSubmission])
+async def get_student_recent_submissions(
+    user_id: int = Query(..., description="ID của học sinh cần xem bài nộp"),
+    only_failed: bool = Query(False, description="Chỉ lấy bài nộp không đạt AC"),
+    limit: int = Query(10, ge=1, le=50, description="Số lượng bài nộp"),
+    db: AsyncSession = Depends(get_db)
+):
+    """Danh sách bài nộp gần đây của học sinh (phục vụ chọn bài nộp cho Code Doctor)."""
+    stmt = (
+        select(
+            JudgeSubmission.id,
+            JudgeSubmission.date,
+            JudgeSubmission.result,
+            JudgeSubmission.points,
+            JudgeProblem.id.label("problem_id"),
+            JudgeProblem.code.label("problem_code"),
+            JudgeProblem.name.label("problem_name"),
+        )
+        .join(JudgeProblem, JudgeProblem.id == JudgeSubmission.problem_id)
+        .where(JudgeSubmission.user_id == user_id)
+    )
+    if only_failed:
+        stmt = stmt.where(JudgeSubmission.result != "AC")
+
+    stmt = stmt.order_by(JudgeSubmission.date.desc()).limit(limit)
+    res = await db.execute(stmt)
+
+    return [
+        StudentRecentSubmission(
+            id=row.id,
+            date=row.date.isoformat() if row.date else "",
+            result=row.result or "UNK",
+            points=float(row.points or 0.0),
+            problem_id=row.problem_id,
+            problem_code=row.problem_code or "",
+            problem_name=row.problem_name or f"Bài toán #{row.problem_id}",
+        )
+        for row in res.all()
+    ]

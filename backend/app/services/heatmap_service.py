@@ -18,6 +18,12 @@ from app.schemas.teacher import (
     StudentBloomScore,
     StudentDetailResponse,
     StudentDetailSummary,
+    ClassStudentItem,
+)
+
+from app.services.algorithm_competency_service import (
+    algorithm_competency_service,
+    PILLAR_KEYS,
 )
 
 # Mapping Bloom theo dữ liệu THẬT của tmath (bảng judge_problemgroup):
@@ -31,6 +37,17 @@ BLOOM_LABELS: Dict[str, str] = {
     "D": "Bloom D (Phân tích)",
     "E": "Bloom E (Đánh giá)",
     "F": "Bloom F (Đặc biệt)",
+}
+
+PILLAR_DISPLAY_LABELS: Dict[str, str] = {
+    "quy_hoach_dong": "Quy hoạch động (DP)",
+    "cau_truc_du_lieu": "Cấu trúc dữ liệu (DS)",
+    "xu_ly_xau": "Xử lý xâu",
+    "ham_co_ban": "Hàm & Cơ bản",
+    "toan_hoc": "Toán học & Số học",
+    "hinh_hoc": "Hình học tính toán",
+    "do_thi": "Lý thuyết đồ thị",
+    "tham_lam": "Thuật toán tham lam",
 }
 STUCK_THRESHOLD = 8  # >= 8 lượt nộp sai trên cùng 1 bài trong 24h
 INACTIVE_DAYS = 7    # > 7 ngày không nộp bài
@@ -144,7 +161,7 @@ class HeatmapService:
 
     @staticmethod
     async def get_class_heatmap(org_id: int, db: AsyncSession) -> ClassHeatmapResponse:
-        """F2.1: Heatmap 2D của lớp — điểm Bloom = (bài AC duy nhất / tổng bài mức đó) * 100."""
+        """F2.1: Heatmap 2D của lớp: điểm Bloom = (bài AC duy nhất / tổng bài mức đó) * 100."""
         org = (
             await db.execute(select(JudgeOrganization).where(JudgeOrganization.id == org_id))
         ).scalar_one_or_none()
@@ -204,8 +221,8 @@ class HeatmapService:
         )
 
     @staticmethod
-    async def get_student_detail(student_id: int, db: AsyncSession) -> StudentDetailResponse:
-        """F2.2: Chi tiết học sinh — profile + lớp học + điểm Bloom + cảnh báo + thống kê."""
+    async def get_student_detail(student_id: int, db: AsyncSession, time_range: str = "all") -> StudentDetailResponse:
+        """F2.2: Chi tiết học sinh: profile + lớp học + điểm năng lực 8 trụ cột thuật toán + cảnh báo + thống kê."""
         profile = (
             await db.execute(select(JudgeProfile).where(JudgeProfile.id == student_id))
         ).scalar_one_or_none()
@@ -226,46 +243,44 @@ class HeatmapService:
         )
         organizations = [row[0] for row in orgs_res.all()]
 
-        bloom_totals = await HeatmapService._get_bloom_totals(db)
-        ac_map = await HeatmapService._get_ac_counts_by_bloom(db, [student_id])
-        ac_by_bloom = ac_map.get(student_id, {})
         alerts, last_sub = await HeatmapService._get_alerts(db, [student_id])
-        if HeatmapService._has_gap_alert(ac_by_bloom, bloom_totals) and "GAP" not in alerts[student_id]:
-            alerts[student_id].append("GAP")
 
+        # Tính điểm năng lực 8 trụ cột thuật toán theo mốc thời gian
+        radar = await algorithm_competency_service.get_student_radar(student_id, time_range, db)
         bloom_scores = [
             StudentBloomScore(
-                group_id=gid,
-                label=BLOOM_LABELS[bloom],
-                score=round(
-                    ac_by_bloom.get(bloom, 0) / bloom_totals[bloom] * 100.0, 1
-                ) if bloom_totals.get(bloom, 0) > 0 else 0.0,
+                group_id=idx + 1,
+                label=PILLAR_DISPLAY_LABELS.get(k, k),
+                score=getattr(radar, k, 0.0)
             )
-            for gid, bloom in BLOOM_GROUP_MAP.items()
+            for idx, k in enumerate(PILLAR_KEYS)
         ]
 
         total_problems = (
             await db.execute(select(func.count(func.distinct(JudgeProblem.id))))
         ).scalar_one() or 0
-        solved = (
-            await db.execute(
-                select(func.count(func.distinct(JudgeSubmission.problem_id)))
-                .where(JudgeSubmission.user_id == student_id, JudgeSubmission.result == "AC")
-            )
-        ).scalar_one() or 0
-        subs_7d = (
-            await db.execute(
-                select(func.count(JudgeSubmission.id)).where(
-                    JudgeSubmission.user_id == student_id,
-                    JudgeSubmission.date >= datetime.utcnow() - timedelta(days=7),
-                )
-            )
-        ).scalar_one() or 0
+
+        ref_now = await algorithm_competency_service.get_reference_now(db)
+        cutoff = algorithm_competency_service.get_cutoff_date(time_range, ref_now)
+
+        solved_stmt = select(func.count(func.distinct(JudgeSubmission.problem_id))).where(
+            JudgeSubmission.user_id == student_id,
+            JudgeSubmission.result == "AC"
+        )
+        if cutoff:
+            solved_stmt = solved_stmt.where(JudgeSubmission.date >= cutoff)
+        solved = (await db.execute(solved_stmt)).scalar_one() or 0
+
+        subs_period_stmt = select(func.count(JudgeSubmission.id)).where(JudgeSubmission.user_id == student_id)
+        if cutoff:
+            subs_period_stmt = subs_period_stmt.where(JudgeSubmission.date >= cutoff)
+        subs_period = (await db.execute(subs_period_stmt)).scalar_one() or 0
 
         return StudentDetailResponse(
             user_id=student_id,
             name=profile.name or f"User {student_id}",
             username=username or f"user_{student_id}",
+            time_range=time_range,
             points=profile.points or 0.0,
             performance_points=profile.performance_points or 0.0,
             problem_count=profile.problem_count or 0,
@@ -277,9 +292,56 @@ class HeatmapService:
             summary=StudentDetailSummary(
                 total_problems_in_system=total_problems,
                 total_solved_unique=solved,
-                total_submissions_7d=subs_7d,
+                total_submissions_7d=subs_period,
+                time_range=time_range,
+                total_submissions_period=subs_period,
             ),
         )
+
+    @staticmethod
+    async def get_class_students(org_id: int, db: AsyncSession) -> List[ClassStudentItem]:
+        """Danh sách học sinh thuộc lớp org_id kèm điểm, xếp hạng, cảnh báo và thời gian nộp gần nhất."""
+        org = (
+            await db.execute(select(JudgeOrganization).where(JudgeOrganization.id == org_id))
+        ).scalar_one_or_none()
+        if not org:
+            raise HTTPException(status_code=404, detail=f"Organization {org_id} not found.")
+
+        member_ids = await HeatmapService._get_member_ids(db, org_id)
+        if not member_ids:
+            return []
+
+        stmt = (
+            select(
+                JudgeProfile.id,
+                JudgeProfile.name,
+                AuthUser.username,
+                JudgeProfile.points,
+                JudgeProfile.problem_count,
+                JudgeProfile.display_rank,
+            )
+            .outerjoin(AuthUser, AuthUser.id == JudgeProfile.user_id)
+            .where(JudgeProfile.id.in_(member_ids))
+            .order_by(JudgeProfile.points.desc())
+        )
+        res = await db.execute(stmt)
+        rows = res.all()
+
+        alerts, last_sub = await HeatmapService._get_alerts(db, member_ids)
+
+        return [
+            ClassStudentItem(
+                user_id=r[0],
+                name=r[1] or f"User {r[0]}",
+                username=r[2] or f"user_{r[0]}",
+                points=round(r[3] or 0.0, 1),
+                problem_count=r[4] or 0,
+                display_rank=r[5] or "user",
+                alerts=alerts.get(r[0], []),
+                last_submission_at=last_sub.get(r[0]),
+            )
+            for r in rows
+        ]
 
 
 heatmap_service = HeatmapService()

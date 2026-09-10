@@ -14,10 +14,12 @@ from app.schemas.teacher import (
     StudentSearchItem,
     ClassHeatmapResponse,
     StudentDetailResponse,
+    ClassStudentItem,
 )
 from app.schemas.analytics import StudentTagAnalyticsResponse
 from app.services.tag_analytics_service import tag_analytics_service
 from app.services.heatmap_service import heatmap_service
+from app.services.algorithm_competency_service import algorithm_competency_service
 
 router = APIRouter()
 
@@ -105,23 +107,34 @@ async def search_students(
 @router.get("/class/{org_id}/heatmap", response_model=ClassHeatmapResponse)
 async def get_class_heatmap(
     org_id: int,
+    time_range: str = Query("all", pattern="^(1d|7d|30d|1y|all)$", description="Mốc thời gian đánh giá (7d, 30d, 1y, all)"),
     db: AsyncSession = Depends(get_db)
 ):
-    """F2.1: Heatmap 2D năng lực lớp học — điểm Bloom thật + cảnh báo STUCK/GAP/INACTIVE."""
-    return await heatmap_service.get_class_heatmap(org_id, db)
+    """F2.1: Heatmap 2D năng lực lớp học theo 8 chuyên đề thuật toán cốt lõi."""
+    return await algorithm_competency_service.get_class_competency_heatmap(org_id, time_range, db)
 
 @router.get("/students/{student_id}/detail", response_model=StudentDetailResponse)
 async def get_student_detail(
     student_id: int,
+    time_range: str = Query("all", pattern="^(1d|7d|30d|1y|all)$", description="Mốc thời gian đánh giá (7d, 30d, 1y, all)"),
     db: AsyncSession = Depends(get_db)
 ):
-    """F2.2: Xem chi tiết học sinh — profile, lớp học, điểm Bloom, cảnh báo, thống kê."""
-    return await heatmap_service.get_student_detail(student_id, db)
+    """F2.2: Xem chi tiết học sinh: profile, lớp học, năng lực 8 chuyên đề thuật toán, cảnh báo, thống kê."""
+    return await heatmap_service.get_student_detail(student_id, db, time_range=time_range)
 
 @router.get("/students/{student_id}/analytics/tags", response_model=StudentTagAnalyticsResponse)
 async def get_managed_student_tag_analytics(
     student_id: int,
+    time_range: str = Query("all", pattern="^(1d|7d|30d|1y|all)$", description="Mốc thời gian đánh giá (7d, 30d, 1y, all)"),
     db: AsyncSession = Depends(get_db)
 ):
-    """Tag analytics của 1 học sinh (dùng cho chế độ xem chi tiết mở rộng)."""
-    return await tag_analytics_service.get_student_tag_analytics(student_id, db)
+    """Tag analytics của 1 học sinh theo mốc thời gian (dùng cho chế độ xem chi tiết mở rộng)."""
+    return await tag_analytics_service.get_student_tag_analytics(student_id, db, time_range=time_range)
+
+@router.get("/classes/{org_id}/students", response_model=list[ClassStudentItem])
+async def get_class_students(
+    org_id: int,
+    db: AsyncSession = Depends(get_db)
+):
+    """Danh sách học sinh của một lớp học kèm điểm, xếp hạng, cảnh báo và thời gian nộp bài gần nhất."""
+    return await heatmap_service.get_class_students(org_id, db)

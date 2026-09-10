@@ -43,9 +43,16 @@ export const AIAdvisorCard: React.FC<AIAdvisorCardProps> = ({
             <div className="h-7 w-7 rounded-md bg-brand-primary/10 border border-brand-primary/20 flex items-center justify-center text-brand-primary flex-shrink-0">
               <Lightbulb className="w-4 h-4" />
             </div>
-            <h2 className="text-sm font-semibold text-text-primary tracking-tight">
-              Nhận xét học tập
-            </h2>
+            <div className="flex items-center gap-2">
+              <h2 className="text-sm font-semibold text-text-primary tracking-tight">
+                Nhận xét học tập
+              </h2>
+              {data?.time_range && data.time_range !== 'all' && (
+                <Badge variant="outline" className="text-[10px] font-sans text-brand-primary border-brand-primary/30 bg-brand-primary/5">
+                  {data.time_range === '1d' ? '1 ngày qua' : data.time_range === '7d' ? '1 tuần qua' : data.time_range === '30d' ? '1 tháng qua' : '1 năm qua'}
+                </Badge>
+              )}
+            </div>
           </div>
 
           <Button
@@ -95,15 +102,15 @@ export const AIAdvisorCard: React.FC<AIAdvisorCardProps> = ({
 
             {/* Chips: active tags & recommendations */}
             <div className="flex flex-wrap items-center gap-1.5 pt-0.5">
-              {data.recent_7days_summary.active_tags.slice(0, 4).map((tag) => (
+              {(data.period_summary?.active_tags || data.recent_7days_summary.active_tags).slice(0, 4).map((tag) => (
                 <Badge key={tag} variant="outline" className="text-[10px] font-sans">
                   {tag}
                 </Badge>
               ))}
 
-              {data.recent_7days_summary.active_tags.length > 4 && (
+              {(data.period_summary?.active_tags || data.recent_7days_summary.active_tags).length > 4 && (
                 <span className="text-[10px] text-text-tertiary">
-                  +{data.recent_7days_summary.active_tags.length - 4} khác
+                  +{(data.period_summary?.active_tags || data.recent_7days_summary.active_tags).length - 4} khác
                 </span>
               )}
             </div>

@@ -1,13 +1,28 @@
 from pydantic import BaseModel
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, Any
 
-class BloomRadar(BaseModel):
-    A_Nho: float = 0.0
-    B_Hieu: float = 0.0
-    C_VanDung: float = 0.0
-    D_PhanTich: float = 0.0
-    E_DanhGia: float = 0.0
-    F_DacBiet: float = 0.0
+class PillarBreakdownItem(BaseModel):
+    score: float = 0.0
+    base_score: float = 0.0
+    precision_mod: float = 0.0
+    efficiency_mod: float = 0.0
+    code_quality_mod: float = 0.0
+    ac_count: int = 0
+    total_subs: int = 0
+    avg_time_ratio: float = 0.0
+    breakdown_items: List[Dict[str, Any]] = []
+
+class AlgorithmRadar(BaseModel):
+    time_range: str = "all"
+    quy_hoach_dong: float = 0.0
+    cau_truc_du_lieu: float = 0.0
+    xu_ly_xau: float = 0.0
+    ham_co_ban: float = 0.0
+    toan_hoc: float = 0.0
+    hinh_hoc: float = 0.0
+    do_thi: float = 0.0
+    tham_lam: float = 0.0
+    breakdown: Optional[Dict[str, PillarBreakdownItem]] = None
 
 class SkillTreeNode(BaseModel):
     topic_id: int
@@ -20,8 +35,18 @@ class SkillTreeNode(BaseModel):
 class SkillTreeResponse(BaseModel):
     user_id: int
     student_name: str
-    bloom_radar: BloomRadar
+    time_range: str = "all"
+    bloom_radar: AlgorithmRadar
     skill_tree_nodes: List[SkillTreeNode]
+
+class StudentRecentSubmission(BaseModel):
+    id: int
+    date: str
+    result: str
+    points: float = 0.0
+    problem_id: int
+    problem_code: str
+    problem_name: str
 
 class FailedSubmissionItem(BaseModel):
     submission_id: int
@@ -63,4 +88,3 @@ class SubmissionDetailResponse(BaseModel):
     language_name: str
     source_code: str
     testcases: List[TestCaseDetailItem] = []
-

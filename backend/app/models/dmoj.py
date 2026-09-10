@@ -1,4 +1,5 @@
-from sqlalchemy import Column, Integer, String, Float, DateTime, Text, ForeignKey, SmallInteger
+from datetime import datetime
+from sqlalchemy import Column, Integer, String, Float, DateTime, Text, ForeignKey, SmallInteger, JSON
 from app.core.database import Base
 
 class JudgeProfile(Base):
@@ -95,7 +96,7 @@ class JudgeSubmissionsource(Base):
     source = Column(Text)
 
 class AuthUser(Base):
-    """Django auth_user — nguồn username thật của học sinh/giáo viên."""
+    """Django auth_user: nguồn username thật của học sinh/giáo viên."""
     __tablename__ = "auth_user"
 
     id = Column(Integer, primary_key=True, index=True)
@@ -106,13 +107,26 @@ class AuthUser(Base):
     is_active = Column(SmallInteger, default=1)
 
 class JudgeProblemGroup(Base):
-    """Nhóm mức độ bài toán — mapping Bloom theo dữ liệu thật của tmath:
+    """Nhóm mức độ bài toán: mapping Bloom theo dữ liệu thật của tmath:
     4=A(Nhớ), 5=B(Hiểu), 6=C(Vận dụng), 7=D(Phân tích), 8=E(Đánh giá), 13=F(Đặc biệt)."""
     __tablename__ = "judge_problemgroup"
 
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String(20))
     full_name = Column(String(100))
+
+class JudgeProblemAiTag(Base):
+    """Lưu trữ kết quả tự động gắn nhãn chủ đề và mức độ Bloom của AI (Pipeline F3.1)."""
+    __tablename__ = "judge_problem_ai_tag"
+
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    problem_id = Column(Integer, ForeignKey("judge_problem.id"), unique=True, index=True, nullable=False)
+    primary_tag_id = Column(Integer, ForeignKey("judge_problemtype.id"), index=True, nullable=False)
+    secondary_tag_ids = Column(JSON, nullable=True)  # List[int]
+    bloom_group_id = Column(Integer, ForeignKey("judge_problemgroup.id"), index=True, nullable=True)
+    reasoning = Column(Text, nullable=True)
+    model = Column(String(100), default="Qwen3.8-4B-GGUF")
+    created_at = Column(DateTime, default=datetime.utcnow, index=True)
 
 class JudgeLanguage(Base):
     __tablename__ = "judge_language"
