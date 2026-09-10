@@ -3,16 +3,22 @@ import {
   fetchSkillTree,
   fetchTagAnalytics,
   fetchAICommentary,
+  requestCodeDoctor,
+  fetchFailedSubmissions,
 } from '../services/api';
 import {
   SkillTreeResponseData,
+  CodeDoctorResponseData,
   TagAnalyticsResponseData,
   AICommentaryResponseData,
   ClassStudentItemData,
   TimeRange,
+  FailedSubmissionItem,
 } from '../types';
 import { BloomRadar } from '../components/BloomRadar';
 import { SkillTree } from '../components/SkillTree';
+import { CodeDoctorModal } from '../components/CodeDoctorModal';
+import { FailedSubmissionsList } from '../components/FailedSubmissionsList';
 import { AIAdvisorCard } from '../components/AIAdvisorCard';
 import { TagCompletionGrid } from '../components/TagCompletionGrid';
 import { TimeRangeFilter } from '../components/TimeRangeFilter';
@@ -49,6 +55,9 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
   const [aiError, setAiError] = useState<string | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
+  const [doctorModalData, setDoctorModalData] = useState<CodeDoctorResponseData | null>(null);
+  const [failedSubmissions, setFailedSubmissions] = useState<FailedSubmissionItem[]>([]);
+  const [diagnosingId, setDiagnosingId] = useState<number | null>(null);
 
   useEffect(() => {
     loadData(timeRange);
@@ -59,9 +68,10 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
     setError(null);
     loadAICommentary(false, range);
     try {
-      const [skillRes, tagRes] = await Promise.allSettled([
+      const [skillRes, tagRes, failedRes] = await Promise.allSettled([
         fetchSkillTree(studentId, range),
         fetchTagAnalytics(studentId, range),
+        fetchFailedSubmissions(studentId),
       ]);
       if (skillRes.status === 'fulfilled') {
         setData(skillRes.value);
@@ -69,6 +79,7 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
         setError('Không tải được sơ đồ kỹ năng của học sinh. Vui lòng thử lại sau.');
       }
       if (tagRes.status === 'fulfilled') setTagData(tagRes.value);
+      if (failedRes.status === 'fulfilled') setFailedSubmissions(failedRes.value);
     } catch (err) {
       console.error(err);
       setError('Không tải được dữ liệu. Vui lòng thử lại sau.');
@@ -109,6 +120,20 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
     currentIndex >= 0 && currentIndex < classStudents.length - 1
       ? classStudents[currentIndex + 1]
       : null;
+
+  const handleDiagnose = async (submissionId: number) => {
+    setDiagnosingId(submissionId);
+    try {
+      const res = await requestCodeDoctor(submissionId);
+      if (res.status === 'COMPLETED' && res.result?.diagnosis) {
+        setDoctorModalData(res.result);
+      }
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setDiagnosingId(null);
+    }
+  };
 
   if (loading && !data) {
     return (
@@ -277,6 +302,16 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
         <SkillTree nodes={data.skill_tree_nodes} />
       </div>
 
+      {/* Failed Submissions (Code Doctor Selection) */}
+      <div id="section-failed-submissions">
+        <FailedSubmissionsList
+          submissions={failedSubmissions}
+          loading={loading}
+          onDiagnose={handleDiagnose}
+          diagnosingId={diagnosingId}
+        />
+      </div>
+
       {/* Tag Completion Grid */}
       <div id="section-tag-analytics">
         <TagCompletionGrid tags={tagData?.tags ?? []} />
@@ -290,6 +325,14 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
         error={aiError}
         onRefresh={() => loadAICommentary(true)}
       />
+
+      {/* Code Doctor Modal */}
+      {doctorModalData && (
+        <CodeDoctorModal
+          data={doctorModalData}
+          onClose={() => setDoctorModalData(null)}
+        />
+      )}
     </div>
   );
 };

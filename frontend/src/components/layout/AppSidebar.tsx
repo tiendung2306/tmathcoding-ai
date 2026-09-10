@@ -9,7 +9,8 @@ import {
   ChevronRight,
   BookOpen,
   X,
-  ShieldCheck
+  ShieldCheck,
+  Stethoscope
 } from "lucide-react";
 import { cn } from "../../lib/utils";
 import { TooltipProvider } from "../ui/tooltip";
@@ -49,6 +50,11 @@ export const AppSidebar: React.FC<AppSidebarProps> = ({
       id: "tag-analytics",
       label: "Thống kê chuyên đề",
       icon: Tags,
+    },
+    {
+      id: "failed-submissions",
+      label: "Bài nộp chưa đạt",
+      icon: Stethoscope,
     },
   ];
 

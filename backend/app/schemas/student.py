@@ -47,3 +47,44 @@ class StudentRecentSubmission(BaseModel):
     problem_id: int
     problem_code: str
     problem_name: str
+
+class FailedSubmissionItem(BaseModel):
+    submission_id: int
+    problem_id: int
+    problem_code: str
+    problem_name: str
+    result: str
+    status: Optional[str] = None
+    date: Optional[str] = None
+    points: float = 0.0
+    language_id: Optional[int] = None
+
+class TestCaseDetailItem(BaseModel):
+    case: int
+    status: str
+    time: Optional[float] = None
+    memory: Optional[float] = None
+    points: Optional[float] = None
+    total: Optional[float] = None
+    feedback: Optional[str] = None
+    output: Optional[str] = None
+
+class SubmissionDetailResponse(BaseModel):
+    submission_id: int
+    user_id: int
+    problem_id: int
+    problem_code: str
+    problem_name: str
+    problem_description: str
+    time_limit: float
+    memory_limit: int
+    problem_points: float
+    result: str
+    status: Optional[str] = None
+    date: Optional[str] = None
+    time: Optional[float] = None
+    memory: Optional[float] = None
+    points: float = 0.0
+    language_name: str
+    source_code: str
+    testcases: List[TestCaseDetailItem] = []

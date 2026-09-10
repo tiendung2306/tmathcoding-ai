@@ -132,7 +132,7 @@ export function App() {
       return;
     }
 
-    if (['overview', 'skill-tree', 'tag-analytics'].includes(section)) {
+    if (['overview', 'skill-tree', 'tag-analytics', 'failed-submissions'].includes(section)) {
       setActiveTab('student');
       setPendingSection(section);
       onCloseMobileRef();

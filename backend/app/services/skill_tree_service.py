@@ -1,3 +1,4 @@
+from typing import Dict
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
 from app.models.dmoj import JudgeSubmission, JudgeProblemTypes, JudgeProblemtype, JudgeProfile
@@ -86,5 +87,6 @@ class SkillTreeService:
             bloom_radar=radar,
             skill_tree_nodes=nodes
         )
+
 
 skill_tree_service = SkillTreeService()

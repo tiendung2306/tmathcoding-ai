@@ -4,6 +4,7 @@ from typing import Dict, Optional, List
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.llm_adapter import llm_adapter
+from app.core.redis import cache_get, cache_set, cache_delete
 from app.schemas.analytics import (
     AICommentaryResponse,
     Recent7DaysSummary,
@@ -24,7 +25,7 @@ RANGE_LABELS = {
 
 class TagAIService:
     def __init__(self):
-        # In-memory daily cache keyed by "user_id_time_range_YYYY-MM-DD"
+        # In-memory daily fallback cache (keyed by user_id_time_range_YYYY-MM-DD) in case Redis is temporarily down
         self._daily_cache: Dict[str, AICommentaryResponse] = {}
 
     def _evict_stale_cache(self, today_str: str) -> None:
@@ -41,13 +42,28 @@ class TagAIService:
         force_refresh: bool = False
     ) -> AICommentaryResponse:
         today_str = datetime.utcnow().strftime("%Y-%m-%d")
-        cache_key = f"{user_id}_{time_range}_{today_str}"
+        redis_key = f"tmath:ai_commentary:{user_id}:{time_range}:{today_str}"
+        mem_cache_key = f"{user_id}_{time_range}_{today_str}"
 
-        # Evict commentaries cached from previous days (bounded in-memory cache)
         self._evict_stale_cache(today_str)
 
-        if not force_refresh and cache_key in self._daily_cache:
-            return self._daily_cache[cache_key]
+        if force_refresh:
+            await cache_delete(redis_key)
+            self._daily_cache.pop(mem_cache_key, None)
+        else:
+            # 1. Check Redis Cache first (Fast path: ~1-2ms)
+            cached_json = await cache_get(redis_key)
+            if cached_json:
+                try:
+                    logger.info(f"Redis Cache HIT for key '{redis_key}'")
+                    return AICommentaryResponse.model_validate_json(cached_json)
+                except Exception as e:
+                    logger.warning(f"Failed to parse cached JSON for '{redis_key}': {e}")
+
+            # 2. Check local in-memory fallback
+            if mem_cache_key in self._daily_cache:
+                logger.info(f"In-memory Cache HIT for key '{mem_cache_key}'")
+                return self._daily_cache[mem_cache_key]
 
         # Fetch Tag statistics according to time_range
         analytics: StudentTagAnalyticsResponse = await TagAnalyticsService.get_student_tag_analytics(
@@ -132,8 +148,9 @@ class TagAIService:
             generated_at=datetime.utcnow().isoformat() + "Z"
         )
 
-        # Cache daily response
-        self._daily_cache[cache_key] = response_obj
+        # Cache response in Redis (24h TTL) and local memory fallback
+        await cache_set(redis_key, response_obj.model_dump_json(), expire=86400)
+        self._daily_cache[mem_cache_key] = response_obj
         return response_obj
 
 tag_ai_service = TagAIService()
