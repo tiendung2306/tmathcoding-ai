@@ -1,7 +1,7 @@
 from datetime import datetime, timedelta
-from typing import Dict, List, Any
+from typing import Dict, List, Any, Optional
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func, and_
+from sqlalchemy import select, func
 from fastapi import HTTPException
 
 from app.models.dmoj import JudgeSubmission, JudgeProblem, JudgeProblemTypes, JudgeProblemtype, JudgeProfile
@@ -11,16 +11,23 @@ from app.schemas.analytics import (
     StudentTagAnalyticsSummary,
     StudentTagAnalyticsResponse
 )
+from app.services.algorithm_competency_service import algorithm_competency_service
 
 class TagAnalyticsService:
     @staticmethod
-    async def get_student_tag_analytics(user_id: int, db: AsyncSession) -> StudentTagAnalyticsResponse:
+    async def get_student_tag_analytics(
+        user_id: int,
+        db: AsyncSession,
+        time_range: str = "all"
+    ) -> StudentTagAnalyticsResponse:
         # 1. Fetch Profile
         prof_stmt = select(JudgeProfile).where(JudgeProfile.id == user_id)
         prof_res = await db.execute(prof_stmt)
         profile = prof_res.scalar_one_or_none()
-        # name có thể NULL trong DB thật -> guard để Pydantic không crash 500
         student_name = (profile.name or f"User {user_id}") if profile else f"User {user_id}"
+
+        ref_now = await algorithm_competency_service.get_reference_now(db)
+        cutoff_date = algorithm_competency_service.get_cutoff_date(time_range, ref_now)
 
         # 2. Query Total Problems in System per Tag
         total_problems_stmt = (
@@ -33,7 +40,7 @@ class TagAnalyticsService:
         total_res = await db.execute(total_problems_stmt)
         total_problems_map: Dict[int, int] = {row.problemtype_id: row.total_cnt for row in total_res.all()}
 
-        # 3. Query Unique AC Solved Problems by Student per Tag (All-Time)
+        # 3. Query Unique AC Solved Problems by Student per Tag in the selected time range
         solved_stmt = (
             select(
                 JudgeProblemTypes.problemtype_id,
@@ -41,46 +48,46 @@ class TagAnalyticsService:
             )
             .join(JudgeSubmission, JudgeSubmission.problem_id == JudgeProblemTypes.problem_id)
             .where(JudgeSubmission.user_id == user_id, JudgeSubmission.result == "AC")
-            .group_by(JudgeProblemTypes.problemtype_id)
         )
+        if cutoff_date:
+            solved_stmt = solved_stmt.where(JudgeSubmission.date >= cutoff_date)
+
+        solved_stmt = solved_stmt.group_by(JudgeProblemTypes.problemtype_id)
         solved_res = await db.execute(solved_stmt)
         solved_problems_map: Dict[int, int] = {row.problemtype_id: row.ac_cnt for row in solved_res.all()}
 
-        # 4. Query 7-Day Submissions Breakdown per Tag
-        seven_days_ago = datetime.utcnow() - timedelta(days=7)
-        sub_7d_stmt = (
+        # 4. Query Submissions Breakdown per Tag in the selected time range
+        sub_period_stmt = (
             select(
                 JudgeProblemTypes.problemtype_id,
                 JudgeSubmission.result,
                 func.count(JudgeSubmission.id).label("sub_cnt")
             )
             .join(JudgeSubmission, JudgeSubmission.problem_id == JudgeProblemTypes.problem_id)
-            .where(
-                JudgeSubmission.user_id == user_id,
-                JudgeSubmission.date >= seven_days_ago
-            )
-            .group_by(JudgeProblemTypes.problemtype_id, JudgeSubmission.result)
+            .where(JudgeSubmission.user_id == user_id)
         )
-        sub_7d_res = await db.execute(sub_7d_stmt)
+        if cutoff_date:
+            sub_period_stmt = sub_period_stmt.where(JudgeSubmission.date >= cutoff_date)
 
-        # Structure 7d sub data: {tag_id: {'AC': x, 'WA': y, 'TLE': z, ...}}
-        sub_7d_map: Dict[int, Dict[str, int]] = {}
-        for row in sub_7d_res.all():
+        sub_period_stmt = sub_period_stmt.group_by(JudgeProblemTypes.problemtype_id, JudgeSubmission.result)
+        sub_period_res = await db.execute(sub_period_stmt)
+
+        sub_period_map: Dict[int, Dict[str, int]] = {}
+        for row in sub_period_res.all():
             tag_id = row.problemtype_id
             verdict = row.result or "OTHER"
             cnt = row.sub_cnt
 
-            if tag_id not in sub_7d_map:
-                sub_7d_map[tag_id] = {}
-            sub_7d_map[tag_id][verdict] = sub_7d_map[tag_id].get(verdict, 0) + cnt
+            if tag_id not in sub_period_map:
+                sub_period_map[tag_id] = {}
+            sub_period_map[tag_id][verdict] = sub_period_map[tag_id].get(verdict, 0) + cnt
 
-        # 4b. Query GLOBAL 7-day submission count (no tag join -> no double counting
-        # for submissions on problems that belong to multiple tags)
-        total_7d_res = await db.execute(
-            select(func.count(JudgeSubmission.id))
-            .where(JudgeSubmission.user_id == user_id, JudgeSubmission.date >= seven_days_ago)
-        )
-        total_submissions_7d = total_7d_res.scalar_one() or 0
+        # 4b. Query GLOBAL period submission count
+        total_sub_stmt = select(func.count(JudgeSubmission.id)).where(JudgeSubmission.user_id == user_id)
+        if cutoff_date:
+            total_sub_stmt = total_sub_stmt.where(JudgeSubmission.date >= cutoff_date)
+        total_period_res = await db.execute(total_sub_stmt)
+        total_submissions_period = total_period_res.scalar_one() or 0
 
         # 5. Fetch all 99 topics
         topics_stmt = select(JudgeProblemtype).order_by(JudgeProblemtype.id)
@@ -88,16 +95,19 @@ class TagAnalyticsService:
         all_topics = topics_res.scalars().all()
 
         # 6. Query GLOBAL distinct counts for Summary
-        # (Tránh đếm trùng: 1 bài thuộc nhiều Tag chỉ được tính 1 lần)
         total_distinct_res = await db.execute(
             select(func.count(func.distinct(JudgeProblemTypes.problem_id)))
         )
         total_problems_in_system = total_distinct_res.scalar_one() or 0
 
-        solved_distinct_res = await db.execute(
+        solved_distinct_stmt = (
             select(func.count(func.distinct(JudgeSubmission.problem_id)))
             .where(JudgeSubmission.user_id == user_id, JudgeSubmission.result == "AC")
         )
+        if cutoff_date:
+            solved_distinct_stmt = solved_distinct_stmt.where(JudgeSubmission.date >= cutoff_date)
+
+        solved_distinct_res = await db.execute(solved_distinct_stmt)
         total_solved_unique_system = solved_distinct_res.scalar_one() or 0
 
         tag_items: List[TagMetricItem] = []
@@ -116,8 +126,8 @@ class TagAnalyticsService:
             else:
                 tag_weight = "medium"
 
-            # 7d submission stats
-            verdicts = sub_7d_map.get(t_id, {})
+            # Submission stats for this period
+            verdicts = sub_period_map.get(t_id, {})
             ac_c = verdicts.get("AC", 0)
             wa_c = verdicts.get("WA", 0)
             tle_c = verdicts.get("TLE", 0)
@@ -173,12 +183,15 @@ class TagAnalyticsService:
         summary_obj = StudentTagAnalyticsSummary(
             total_problems_in_system=total_problems_in_system,
             total_solved_unique=total_solved_unique_system,
-            total_submissions_7d=total_submissions_7d
+            total_submissions_7d=total_submissions_period,
+            time_range=time_range,
+            total_submissions_period=total_submissions_period
         )
 
         return StudentTagAnalyticsResponse(
             user_id=user_id,
             student_name=student_name,
+            time_range=time_range,
             summary=summary_obj,
             tags=tag_items
         )

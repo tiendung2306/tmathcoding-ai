@@ -1,23 +1,46 @@
-import React, { useEffect, useState } from 'react';
-import { fetchSkillTree, fetchTagAnalytics, fetchAICommentary, requestCodeDoctor } from '../services/api';
-import { SkillTreeResponseData, CodeDoctorResponseData, TagAnalyticsResponseData, AICommentaryResponseData } from '../types';
+import React, { useEffect, useState, useMemo } from 'react';
+import {
+  fetchSkillTree,
+  fetchTagAnalytics,
+  fetchAICommentary,
+} from '../services/api';
+import {
+  SkillTreeResponseData,
+  TagAnalyticsResponseData,
+  AICommentaryResponseData,
+  ClassStudentItemData,
+  TimeRange,
+} from '../types';
 import { BloomRadar } from '../components/BloomRadar';
 import { SkillTree } from '../components/SkillTree';
-import { CodeDoctorModal } from '../components/CodeDoctorModal';
 import { AIAdvisorCard } from '../components/AIAdvisorCard';
 import { TagCompletionGrid } from '../components/TagCompletionGrid';
+import { TimeRangeFilter } from '../components/TimeRangeFilter';
 import { ErrorPanel } from '../components/ErrorPanel';
 import { Card, CardContent } from '../components/ui/card';
 import { Button } from '../components/ui/button';
 import { Badge } from '../components/ui/badge';
 import { Skeleton } from '../components/ui/skeleton';
-import { Stethoscope, BookOpen, Trophy, Activity, User } from 'lucide-react';
+import {
+  BookOpen,
+  ChevronLeft,
+  ChevronRight,
+} from 'lucide-react';
 
 interface StudentDashboardProps {
   studentId: number;
+  classStudents?: ClassStudentItemData[];
+  currentClassName?: string;
+  onSelectStudent?: (userId: number, name: string) => void;
 }
 
-export const StudentDashboard: React.FC<StudentDashboardProps> = ({ studentId }) => {
+export const StudentDashboard: React.FC<StudentDashboardProps> = ({
+  studentId,
+  classStudents = [],
+  currentClassName,
+  onSelectStudent,
+}) => {
+  const [timeRange, setTimeRange] = useState<TimeRange>('all');
   const [data, setData] = useState<SkillTreeResponseData | null>(null);
   const [tagData, setTagData] = useState<TagAnalyticsResponseData | null>(null);
   const [aiData, setAiData] = useState<AICommentaryResponseData | null>(null);
@@ -26,21 +49,19 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({ studentId })
   const [aiError, setAiError] = useState<string | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
-  const [doctorModalData, setDoctorModalData] = useState<CodeDoctorResponseData | null>(null);
-  const [doctorLoading, setDoctorLoading] = useState<boolean>(false);
 
   useEffect(() => {
-    loadData();
+    loadData(timeRange);
   }, [studentId]);
 
-  const loadData = async () => {
+  const loadData = async (range: TimeRange = timeRange) => {
     setLoading(true);
     setError(null);
-    loadAICommentary(false);
+    loadAICommentary(false, range);
     try {
       const [skillRes, tagRes] = await Promise.allSettled([
-        fetchSkillTree(studentId),
-        fetchTagAnalytics(studentId),
+        fetchSkillTree(studentId, range),
+        fetchTagAnalytics(studentId, range),
       ]);
       if (skillRes.status === 'fulfilled') {
         setData(skillRes.value);
@@ -56,12 +77,17 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({ studentId })
     }
   };
 
-  const loadAICommentary = async (forceRefresh: boolean) => {
+  const handleTimeRangeChange = (newRange: TimeRange) => {
+    setTimeRange(newRange);
+    loadData(newRange);
+  };
+
+  const loadAICommentary = async (forceRefresh: boolean, range: TimeRange = timeRange) => {
     if (forceRefresh) setAiRefreshing(true);
     else setAiLoading(true);
     setAiError(null);
     try {
-      const res = await fetchAICommentary(studentId, forceRefresh);
+      const res = await fetchAICommentary(studentId, range, forceRefresh);
       setAiData(res);
     } catch (err) {
       console.error(err);
@@ -72,27 +98,25 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({ studentId })
     }
   };
 
-  const handleDiagnoseMock = async () => {
-    setDoctorLoading(true);
-    try {
-      const res = await requestCodeDoctor(3447100);
-      setDoctorModalData(res);
-    } catch (err) {
-      console.error(err);
-    } finally {
-      setDoctorLoading(false);
-    }
-  };
+  // Peer navigation within class
+  const currentIndex = useMemo(() => {
+    if (!classStudents || classStudents.length === 0) return -1;
+    return classStudents.findIndex((s) => s.user_id === studentId);
+  }, [classStudents, studentId]);
+
+  const prevStudent = currentIndex > 0 ? classStudents[currentIndex - 1] : null;
+  const nextStudent =
+    currentIndex >= 0 && currentIndex < classStudents.length - 1
+      ? classStudents[currentIndex + 1]
+      : null;
 
   if (loading && !data) {
     return (
-      <div className="space-y-5 p-3.5 sm:p-5 lg:p-6 max-w-7xl mx-auto">
-        <Skeleton className="h-24 w-full" />
+      <div className="space-y-4 p-3.5 sm:p-5 lg:p-6 max-w-7xl mx-auto">
+        <Skeleton className="h-10 w-full" />
+        <Skeleton className="h-20 w-full" />
         <Skeleton className="h-16 w-full" />
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
-          <Skeleton className="h-80 w-full" />
-          <Skeleton className="h-80 lg:col-span-2 w-full" />
-        </div>
+        <Skeleton className="h-80 w-full" />
       </div>
     );
   }
@@ -112,10 +136,70 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({ studentId })
   const summary = tagData?.summary;
 
   return (
-    <div className="p-3.5 sm:p-5 lg:p-6 max-w-7xl mx-auto space-y-5">
+    <div className="p-3.5 sm:p-5 lg:p-6 max-w-7xl mx-auto space-y-4">
+      {/* Class Peer Switcher Bar (Thanh duyệt học sinh cùng lớp) */}
+      {classStudents.length > 1 && (
+        <div className="bg-card border border-border rounded-lg p-2.5 px-3.5 flex flex-wrap items-center justify-between gap-2.5">
+          <div className="flex items-center gap-2 text-xs min-w-0">
+            <BookOpen className="w-3.5 h-3.5 text-brand-primary shrink-0" />
+            <span className="text-text-secondary truncate">
+              {currentClassName || 'Danh sách lớp'}
+            </span>
+            <span className="text-border">/</span>
+            <span className="font-mono text-text-tertiary">
+              Học sinh {currentIndex + 1} / {classStudents.length}
+            </span>
+          </div>
+
+          <div className="flex items-center gap-1.5 ml-auto">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => prevStudent && onSelectStudent?.(prevStudent.user_id, prevStudent.name)}
+              disabled={!prevStudent}
+              className="h-7 px-2 text-xs gap-1"
+              title={prevStudent ? `Học sinh trước: ${prevStudent.name}` : 'Đây là học sinh đầu tiên'}
+            >
+              <ChevronLeft className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">Trước</span>
+            </Button>
+
+            {/* Quick dropdown jump to student */}
+            <select
+              value={studentId}
+              onChange={(e) => {
+                const targetId = Number(e.target.value);
+                const st = classStudents.find((s) => s.user_id === targetId);
+                if (st) onSelectStudent?.(st.user_id, st.name);
+              }}
+              aria-label="Chuyển nhanh học sinh trong lớp"
+              className="h-7 rounded-sm border border-border bg-card px-2 text-xs text-text-primary cursor-pointer max-w-[150px] sm:max-w-[200px] truncate focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-brand-primary"
+            >
+              {classStudents.map((s, idx) => (
+                <option key={s.user_id} value={s.user_id}>
+                  {idx + 1}. {s.name} (#{s.user_id})
+                </option>
+              ))}
+            </select>
+
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => nextStudent && onSelectStudent?.(nextStudent.user_id, nextStudent.name)}
+              disabled={!nextStudent}
+              className="h-7 px-2 text-xs gap-1"
+              title={nextStudent ? `Học sinh kế tiếp: ${nextStudent.name}` : 'Đây là học sinh cuối cùng'}
+            >
+              <span className="hidden sm:inline">Sau</span>
+              <ChevronRight className="w-3.5 h-3.5" />
+            </Button>
+          </div>
+        </div>
+      )}
+
       {/* Student Overview Header Card */}
       <Card className="bg-card border-border">
-        <CardContent className="p-4 sm:p-5 flex flex-col md:flex-row md:items-center justify-between gap-4">
+        <CardContent className="p-4 sm:p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div className="space-y-1">
             <div className="flex items-center gap-2">
               <h1 className="text-xl font-bold text-text-primary tracking-tight">
@@ -126,59 +210,71 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({ studentId })
               </Badge>
             </div>
             <p className="text-xs text-text-secondary">
-              Học sinh tmath OJ
+              Đánh giá năng lực 8 trụ cột thuật toán, cây kỹ năng và tiến độ học tập
             </p>
           </div>
 
-          <div className="flex items-center gap-3">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={handleDiagnoseMock}
-              disabled={doctorLoading}
-              className="gap-2 h-8 px-3 text-xs font-medium"
-            >
-              <Stethoscope className="w-3.5 h-3.5 text-red-600" />
-              {doctorLoading ? 'Đang chẩn đoán...' : 'Chẩn đoán bài nộp'}
-            </Button>
+          <div className="flex items-center gap-2.5">
+            <TimeRangeFilter
+              value={timeRange}
+              onChange={handleTimeRangeChange}
+              disabled={loading}
+            />
           </div>
         </CardContent>
       </Card>
 
-      {/* Summary Telemetry Bar */}
+      {/* Summary Telemetry Bar: Chỉ 2 cột: Bài đã giải & Lượt nộp theo mốc thời gian */}
       {summary && (
-        <div className="bg-card border border-border rounded-lg p-3.5 sm:p-4 grid grid-cols-2 sm:grid-cols-3 divide-y sm:divide-y-0 sm:divide-x divide-border/60 gap-3 sm:gap-0">
-          <div className="sm:px-4 first:pl-0 flex flex-col justify-center">
-            <p className="text-[11px] text-text-secondary">Bài đã giải</p>
-            <p className="text-xl font-bold text-text-primary font-mono mt-0.5">
+        <div className="bg-card border border-border rounded-lg p-3.5 sm:p-4 grid grid-cols-2 divide-x divide-border/60">
+          <div className="px-3 sm:px-6 first:pl-2 sm:first:pl-4 flex flex-col justify-center">
+            <p className="text-[11px] text-text-secondary">
+              Bài đã giải{
+                timeRange === '1d'
+                  ? ' (1 ngày qua)'
+                  : timeRange === '7d'
+                  ? ' (1 tuần qua)'
+                  : timeRange === '30d'
+                  ? ' (1 tháng qua)'
+                  : timeRange === '1y'
+                  ? ' (1 năm qua)'
+                  : ''
+              }
+            </p>
+            <p className="text-xl sm:text-2xl font-bold text-text-primary font-mono mt-0.5">
               {summary.total_solved_unique}
             </p>
           </div>
 
-          <div className="pt-2 sm:pt-0 sm:px-4 flex flex-col justify-center">
-            <p className="text-[11px] text-text-secondary">Lượt nộp 7 ngày qua</p>
-            <p className="text-xl font-bold text-text-primary font-mono mt-0.5">
-              {summary.total_submissions_7d}
+          <div className="px-3 sm:px-6 flex flex-col justify-center">
+            <p className="text-[11px] text-text-secondary">
+              Lượt nộp{
+                timeRange === '1d'
+                  ? ' (1 ngày qua)'
+                  : timeRange === '7d'
+                  ? ' (1 tuần qua)'
+                  : timeRange === '30d'
+                  ? ' (1 tháng qua)'
+                  : timeRange === '1y'
+                  ? ' (1 năm qua)'
+                  : ''
+              }
             </p>
-          </div>
-
-          <div className="pt-2 sm:pt-0 sm:px-4 last:pr-0 flex flex-col justify-center col-span-2 sm:col-span-1">
-            <p className="text-[11px] text-text-secondary">Dạng bài theo dõi</p>
-            <p className="text-xl font-bold text-text-primary font-mono mt-0.5">
-              {tagData?.tags.length ?? 0}
+            <p className="text-xl sm:text-2xl font-bold text-text-primary font-mono mt-0.5">
+              {summary.total_submissions_period ?? summary.total_submissions_7d}
             </p>
           </div>
         </div>
       )}
 
-      {/* Main Grid: Bloom Radar + Skill Tree */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
-        <div id="section-overview" className="lg:col-span-1">
-          <BloomRadar data={data.bloom_radar} />
-        </div>
-        <div id="section-skill-tree" className="lg:col-span-2">
-          <SkillTree nodes={data.skill_tree_nodes} />
-        </div>
+      {/* Bloom Radar: 1 hàng độc lập đầy chiều */}
+      <div id="section-overview">
+        <BloomRadar data={data.bloom_radar} />
+      </div>
+
+      {/* Cây kỹ năng */}
+      <div id="section-skill-tree">
+        <SkillTree nodes={data.skill_tree_nodes} />
       </div>
 
       {/* Tag Completion Grid */}
@@ -194,9 +290,6 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({ studentId })
         error={aiError}
         onRefresh={() => loadAICommentary(true)}
       />
-
-      {/* Code Doctor Modal */}
-      <CodeDoctorModal data={doctorModalData} onClose={() => setDoctorModalData(null)} />
     </div>
   );
 };

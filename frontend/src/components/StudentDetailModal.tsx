@@ -119,12 +119,19 @@ export const StudentDetailModal: React.FC<StudentDetailModalProps> = ({
               </div>
             )}
 
-            {/* Bloom scores */}
+            {/* 8-pillar algorithm competencies */}
             <div className="rounded-md border border-border bg-card-subtle/50 p-4 space-y-3">
-              <h4 className="text-xs font-semibold text-text-primary flex items-center gap-1.5">
-                <BarChart3 className="w-3.5 h-3.5 text-brand-primary" />
-                Phân bố năng lực Bloom
-              </h4>
+              <div className="flex items-center justify-between">
+                <h4 className="text-xs font-semibold text-text-primary flex items-center gap-1.5">
+                  <BarChart3 className="w-3.5 h-3.5 text-brand-primary" />
+                  Năng lực 8 Trụ cột Thuật toán
+                </h4>
+                {data.time_range && data.time_range !== 'all' && (
+                  <Badge variant="outline" className="text-[10px] font-sans text-brand-primary border-brand-primary/30 bg-brand-primary/5">
+                    {data.time_range === '1d' ? '1 ngày qua' : data.time_range === '7d' ? '1 tuần qua' : data.time_range === '30d' ? '1 tháng qua' : '1 năm qua'}
+                  </Badge>
+                )}
+              </div>
               <div className="space-y-2">
                 {data.bloom_scores.map((b) => (
                   <div key={b.group_id} className="space-y-1">

@@ -8,14 +8,15 @@ import {
   ChevronLeft,
   ChevronRight,
   BookOpen,
-  X
+  X,
+  ShieldCheck
 } from "lucide-react";
 import { cn } from "../../lib/utils";
 import { TooltipProvider } from "../ui/tooltip";
 
 interface AppSidebarProps {
-  activeTab: "student" | "teacher";
-  setActiveTab: (tab: "student" | "teacher") => void;
+  activeTab: "student" | "teacher" | "admin";
+  setActiveTab: (tab: "student" | "teacher" | "admin") => void;
   activeSubSection?: string;
   onSectionClick?: (section: string) => void;
   isCollapsed: boolean;
@@ -53,16 +54,25 @@ export const AppSidebar: React.FC<AppSidebarProps> = ({
 
   const teacherNavItems = [
     {
-      id: "heatmap",
-      label: "Bản đồ năng lực lớp",
-      icon: BookOpen,
-    },
-    {
-      id: "students",
-      label: "Tra cứu học sinh",
+      id: "roster",
+      label: "Danh sách học sinh",
       icon: Users,
     },
+    {
+      id: "heatmap",
+      label: "Bản đồ năng lực",
+      icon: BookOpen,
+    },
   ];
+
+  const adminNavItems = [
+    {
+      id: "auto-tag",
+      label: "Gắn nhãn tự động",
+      icon: Tags,
+    },
+  ];
+
 
   return (
     <TooltipProvider delayDuration={150}>
@@ -205,20 +215,55 @@ export const AppSidebar: React.FC<AppSidebarProps> = ({
               )}
             </div>
           </div>
+
+          {/* Admin Mode Switcher */}
+          <div>
+            {!isCollapsed && (
+              <div className="px-2 pb-1.5 text-xs font-medium text-text-tertiary">
+                Quản trị
+              </div>
+            )}
+            <div className="space-y-0.5">
+              <button
+                type="button"
+                onClick={() => {
+                  setActiveTab("admin");
+                  onCloseMobile?.();
+                }}
+                className={cn(
+                  "w-full flex items-center gap-2.5 px-2.5 py-2 rounded-md text-xs font-medium transition-colors text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary",
+                  activeTab === "admin"
+                    ? "bg-slate-900 text-white shadow-xs"
+                    : "text-text-secondary hover:text-text-primary hover:bg-card-hover"
+                )}
+              >
+                <ShieldCheck className="w-4 h-4 flex-shrink-0" />
+                {!isCollapsed && <span className="truncate">Quản trị viên</span>}
+              </button>
+
+              {!isCollapsed && activeTab === "admin" && (
+                <div className="pl-4 pt-1 space-y-0.5 border-l border-border/60 ml-4 my-1">
+                  {adminNavItems.map((item) => (
+                    <button
+                      key={item.id}
+                      type="button"
+                      onClick={() => {
+                        onSectionClick?.(item.id);
+                        onCloseMobile?.();
+                      }}
+                      className="w-full text-left text-xs py-1.5 px-2 text-text-secondary hover:text-text-primary hover:bg-card-hover rounded-sm flex items-center justify-between transition-colors"
+                    >
+                      <span className="truncate">{item.label}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
         </div>
 
-        {/* Footer Status & Collapse Toggle */}
-        <div className="p-2 border-t border-border space-y-2">
-          {!isCollapsed && (
-            <div className="p-2 rounded-md bg-card-subtle border border-border text-xs flex items-center justify-between text-text-secondary">
-              <span className="flex items-center gap-2">
-                <span className="h-2 w-2 rounded-full bg-emerald-600 shrink-0" />
-                <span>Trạng thái hệ thống</span>
-              </span>
-              <span className="font-medium text-emerald-700 text-[11px]">Sẵn sàng</span>
-            </div>
-          )}
-
+        {/* Footer Collapse Toggle */}
+        <div className="p-2 border-t border-border">
           <div className="flex items-center justify-between">
             <button
               type="button"

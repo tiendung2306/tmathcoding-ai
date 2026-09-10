@@ -27,10 +27,13 @@ class StudentTagAnalyticsSummary(BaseModel):
     total_problems_in_system: int = 0
     total_solved_unique: int = 0
     total_submissions_7d: int = 0
+    time_range: str = "all"
+    total_submissions_period: int = 0
 
 class StudentTagAnalyticsResponse(BaseModel):
     user_id: int
     student_name: str
+    time_range: str = "all"
     summary: StudentTagAnalyticsSummary
     tags: List[TagMetricItem]
 
@@ -38,9 +41,16 @@ class Recent7DaysSummary(BaseModel):
     submissions_count: int = 0
     active_tags: List[str] = []
 
+class RecentPeriodSummary(BaseModel):
+    time_range: str = "all"
+    submissions_count: int = 0
+    active_tags: List[str] = []
+
 class AICommentaryResponse(BaseModel):
     commentary: str
+    time_range: str = "all"
     recent_7days_summary: Recent7DaysSummary
+    period_summary: Optional[RecentPeriodSummary] = None
     recommended_tags: List[str] = []
     generated_at: str
 

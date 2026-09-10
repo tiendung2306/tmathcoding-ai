@@ -1,15 +1,23 @@
 import React from 'react';
-import { ClassHeatmapResponseData } from '../types';
+import { ClassHeatmapResponseData, TimeRange } from '../types';
 import { AlertCircle, AlertOctagon, Clock, Layers } from 'lucide-react';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from './ui/card';
 import { Badge } from './ui/badge';
+import { TimeRangeFilter } from './TimeRangeFilter';
 
 interface ClassHeatmapProps {
   data: ClassHeatmapResponseData;
   onSelectStudent: (userId: number, name: string) => void;
+  timeRange?: TimeRange;
+  onTimeRangeChange?: (range: TimeRange) => void;
 }
 
-export const ClassHeatmap: React.FC<ClassHeatmapProps> = ({ data, onSelectStudent }) => {
+export const ClassHeatmap: React.FC<ClassHeatmapProps> = ({
+  data,
+  onSelectStudent,
+  timeRange,
+  onTimeRangeChange,
+}) => {
   const getCellColor = (score: number) => {
     if (score >= 80) return 'bg-emerald-50 text-emerald-700 border-emerald-200';
     if (score >= 50) return 'bg-sky-50 text-sky-700 border-sky-200';
@@ -45,19 +53,24 @@ export const ClassHeatmap: React.FC<ClassHeatmapProps> = ({ data, onSelectStuden
 
   return (
     <Card>
-      <CardHeader className="flex flex-row items-center justify-between pb-3">
+      <CardHeader className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3">
         <div>
           <CardTitle className="text-sm flex items-center gap-2">
             <Layers className="w-4 h-4 text-brand-primary" />
-            Bản đồ năng lực lớp học
+            Bản đồ năng lực lớp học (8 Trụ cột thuật toán)
           </CardTitle>
           <CardDescription className="text-xs">
             Lớp: <span className="text-text-primary font-medium">{data.organization_name}</span>
           </CardDescription>
         </div>
-        <Badge variant="outline" className="font-mono text-xs">
-          {data.students.length} học sinh
-        </Badge>
+        <div className="flex flex-wrap items-center gap-2">
+          {timeRange && onTimeRangeChange && (
+            <TimeRangeFilter value={timeRange} onChange={onTimeRangeChange} />
+          )}
+          <Badge variant="outline" className="font-mono text-xs">
+            {data.students.length} học sinh
+          </Badge>
+        </div>
       </CardHeader>
 
       <CardContent className="pt-0 pb-3">
