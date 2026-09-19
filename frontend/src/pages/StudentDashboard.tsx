@@ -234,9 +234,6 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
                 #{data.user_id}
               </Badge>
             </div>
-            <p className="text-xs text-text-secondary">
-              Đánh giá năng lực 8 trụ cột thuật toán, cây kỹ năng và tiến độ học tập
-            </p>
           </div>
 
           <div className="flex items-center gap-2.5">

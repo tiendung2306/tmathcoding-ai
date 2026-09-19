@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { AppSidebar } from './components/layout/AppSidebar';
+import { RoleSelect, Role } from './components/RoleSelect';
 import { Header } from './components/layout/Header';
 import { StudentDashboard } from './pages/StudentDashboard';
 import { TeacherDashboard } from './pages/TeacherDashboard';
@@ -11,7 +11,7 @@ import { Card } from './components/ui/card';
 import { X, Search } from 'lucide-react';
 
 export function App() {
-  const [activeTab, setActiveTab] = useState<'student' | 'teacher' | 'admin'>('student');
+  const [activeTab, setActiveTab] = useState<Role | null>(null);
   const [classes, setClasses] = useState<ClassSummaryData[]>([]);
   const [selectedOrgId, setSelectedOrgId] = useState<number>(19);
   const [classStudents, setClassStudents] = useState<ClassStudentItemData[]>([]);
@@ -23,10 +23,7 @@ export function App() {
 
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [searchResults, setSearchResults] = useState<any[]>([]);
-  const [, setIsSearching] = useState<boolean>(false);
-  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState<boolean>(false);
-  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState<boolean>(false);
-  const [pendingSection, setPendingSection] = useState<string | null>(null);
+  const [isSearching, setIsSearching] = useState<boolean>(false);
 
   // Load classes on initial mount
   useEffect(() => {
@@ -81,63 +78,11 @@ export function App() {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
         setSearchResults([]);
-        setIsMobileMenuOpen(false);
       }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, []);
-
-  // Sub-nav: đợi section render xong (dữ liệu load async) rồi cuộn tới
-  useEffect(() => {
-    if (!pendingSection) return;
-    let attempts = 0;
-    const timer = setInterval(() => {
-      const el = document.getElementById(`section-${pendingSection}`);
-      attempts++;
-      if (el) {
-        el.scrollIntoView({ behavior: 'smooth', block: 'start' });
-        clearInterval(timer);
-        setPendingSection(null);
-      } else if (attempts > 20) {
-        clearInterval(timer);
-        setPendingSection(null);
-      }
-    }, 150);
-    return () => clearInterval(timer);
-  }, [pendingSection]);
-
-  const onCloseMobileRef = () => setIsMobileMenuOpen(false);
-
-  const handleSectionClick = (section: string) => {
-    if (section === 'auto-tag') {
-      setActiveTab('admin');
-      onCloseMobileRef();
-      return;
-    }
-
-    if (section === 'roster' || section === 'students') {
-      setActiveTab('teacher');
-      setTeacherViewMode('roster');
-      setPendingSection('roster');
-      onCloseMobileRef();
-      return;
-    }
-
-    if (section === 'heatmap') {
-      setActiveTab('teacher');
-      setTeacherViewMode('heatmap');
-      setPendingSection('heatmap');
-      onCloseMobileRef();
-      return;
-    }
-
-    if (['overview', 'skill-tree', 'tag-analytics', 'failed-submissions'].includes(section)) {
-      setActiveTab('student');
-      setPendingSection(section);
-      onCloseMobileRef();
-    }
-  };
 
   const handleSearchSubmit = async () => {
     if (!searchQuery.trim()) return;
@@ -160,38 +105,34 @@ export function App() {
     setSearchQuery('');
   };
 
+  const handleRoleSelect = (role: Role) => {
+    setActiveTab(role);
+    if (role === 'teacher') setTeacherViewMode('roster');
+  };
+
   const currentClassName = classes.find((c) => c.id === selectedOrgId)?.name;
 
-  return (
-    <div className="min-h-screen bg-app text-text-primary flex">
-      {/* App Sidebar with Mobile Support */}
-      <AppSidebar
-        activeTab={activeTab}
-        setActiveTab={setActiveTab}
-        onSectionClick={handleSectionClick}
-        isCollapsed={isSidebarCollapsed}
-        setIsCollapsed={setIsSidebarCollapsed}
-        isMobileOpen={isMobileMenuOpen}
-        onCloseMobile={() => setIsMobileMenuOpen(false)}
-      />
+  if (!activeTab) {
+    return <RoleSelect onSelectRole={handleRoleSelect} />;
+  }
 
-      {/* Main Content Area */}
-      <div className="flex-1 flex flex-col min-w-0">
-        {/* Top Header */}
-        <Header
-          activeTab={activeTab}
-          classes={classes}
-          selectedOrgId={selectedOrgId}
-          onSelectOrgId={(id) => setSelectedOrgId(id)}
-          classStudents={classStudents}
-          studentId={selectedStudentId}
-          studentName={selectedStudentName}
-          onSelectStudent={handleSelectStudent}
-          searchQuery={searchQuery}
-          setSearchQuery={setSearchQuery}
-          onSearchSubmit={handleSearchSubmit}
-          onToggleMobileMenu={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
-        />
+  return (
+    <div className="min-h-screen bg-app text-text-primary flex flex-col">
+      {/* Top Header */}
+      <Header
+        activeTab={activeTab}
+        onChangeRole={() => setActiveTab(null)}
+        classes={classes}
+        selectedOrgId={selectedOrgId}
+        onSelectOrgId={(id) => setSelectedOrgId(id)}
+        classStudents={classStudents}
+        studentId={selectedStudentId}
+        studentName={selectedStudentName}
+        onSelectStudent={handleSelectStudent}
+        searchQuery={searchQuery}
+        setSearchQuery={setSearchQuery}
+        onSearchSubmit={handleSearchSubmit}
+      />
 
         {/* Global Search Results Floating Dialog Overlay */}
         {searchResults.length > 0 && (
@@ -243,7 +184,7 @@ export function App() {
                         </Badge>
                       </div>
                       <span className="text-[11px] text-text-secondary">
-                        @{st.username} • {st.problem_count} bài nộp
+                        {st.problem_count} bài nộp
                       </span>
                     </div>
                     <Badge variant="ac" className="text-xs font-mono">
@@ -279,7 +220,6 @@ export function App() {
             <AdminDashboard />
           )}
         </main>
-      </div>
     </div>
   );
 }

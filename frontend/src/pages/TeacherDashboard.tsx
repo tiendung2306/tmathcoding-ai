@@ -125,15 +125,12 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
           <div className="space-y-1">
             <div className="flex items-center gap-2">
               <h1 className="text-lg sm:text-xl font-bold text-text-primary tracking-tight">
-                Không gian quản lý lớp học
+                Quản lý lớp học
               </h1>
               <Badge variant="outline" className="text-[10px] font-mono">
                 {classStudents.length} học sinh
               </Badge>
             </div>
-            <p className="text-xs text-text-secondary">
-              Theo dõi danh bạ học sinh, tiến độ giải bài và bản đồ năng lực chuyên sâu
-            </p>
           </div>
 
           <div className="flex flex-wrap items-center gap-2.5">

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React from 'react';
 import {
   Radar,
   RadarChart,
@@ -11,7 +11,7 @@ import {
 import { BloomRadarData, PillarBreakdownItem } from '../types';
 import { Card, CardHeader, CardTitle, CardContent } from './ui/card';
 import { Badge } from './ui/badge';
-import { Compass, ChevronDown, ChevronUp, Info, CheckCircle2, AlertTriangle } from 'lucide-react';
+import { Compass } from 'lucide-react';
 
 interface BloomRadarProps {
   data: BloomRadarData;
@@ -37,9 +37,6 @@ const PILLAR_CONFIG = [
 ];
 
 export const BloomRadar: React.FC<BloomRadarProps> = ({ data }) => {
-  const [showBreakdown, setShowBreakdown] = useState<boolean>(false);
-  const [selectedPillarKey, setSelectedPillarKey] = useState<string | null>(null);
-
   const isPillars = data.quy_hoach_dong !== undefined;
 
   const chartData = isPillars
@@ -188,148 +185,6 @@ export const BloomRadar: React.FC<BloomRadarProps> = ({ data }) => {
           </ResponsiveContainer>
         </div>
       </CardContent>
-
-      {/* Bảng Giải trình Chi tiết Cộng/Trừ Điểm (Explainability Panel) */}
-      {isPillars && data.breakdown && (
-        <div className="border-t border-border/60 bg-card-subtle/40 rounded-b-lg">
-          <button
-            type="button"
-            onClick={() => setShowBreakdown(!showBreakdown)}
-            className="w-full flex items-center justify-between p-3 sm:px-4 text-xs font-medium text-text-secondary hover:text-text-primary hover:bg-card-subtle/70 transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-brand-primary"
-          >
-            <span className="flex items-center gap-2">
-              <Info className="w-3.5 h-3.5 text-brand-primary" />
-              <span>Xem chi tiết bảng giải trình cộng / trừ điểm (8 chuyên đề)</span>
-            </span>
-            <div className="flex items-center gap-1.5 text-[11px] text-text-tertiary">
-              <span>{showBreakdown ? 'Thu gọn' : 'Mở rộng'}</span>
-              {showBreakdown ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
-            </div>
-          </button>
-
-          {showBreakdown && (
-            <div className="p-3 sm:p-4 pt-1 space-y-3 border-t border-border/40">
-              <div className="overflow-x-auto">
-                <table className="w-full text-left text-xs border-collapse">
-                  <thead>
-                    <tr className="border-b border-border/60 text-text-tertiary text-[11px]">
-                      <th className="py-2 px-2 font-medium">Chuyên đề thuật toán</th>
-                      <th className="py-2 px-2 font-medium text-center">Bài AC</th>
-                      <th className="py-2 px-2 font-medium text-right">Nền tảng (0–50)</th>
-                      <th className="py-2 px-2 font-medium text-right">Chính xác (±15)</th>
-                      <th className="py-2 px-2 font-medium text-right">Hiệu năng (±15)</th>
-                      <th className="py-2 px-2 font-medium text-right">Source code (±10)</th>
-                      <th className="py-2 px-2 font-medium text-right">Tổng điểm</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-border/40 font-mono text-[11px]">
-                    {PILLAR_CONFIG.map((p) => {
-                      const b = data.breakdown ? data.breakdown[p.key] : null;
-                      if (!b) return null;
-                      const isSelected = selectedPillarKey === p.key;
-                      return (
-                        <React.Fragment key={p.key}>
-                          <tr
-                            onClick={() => setSelectedPillarKey(isSelected ? null : p.key)}
-                            className={`cursor-pointer transition-colors ${
-                              isSelected ? 'bg-brand-primary/5 font-semibold' : 'hover:bg-card-subtle'
-                            }`}
-                          >
-                            <td className="py-2 px-2 font-sans font-medium text-text-primary flex items-center gap-1.5">
-                              <span>{p.fullSubject}</span>
-                              {isSelected ? (
-                                <ChevronUp className="w-3 h-3 text-brand-primary" />
-                              ) : (
-                                <ChevronDown className="w-3 h-3 text-text-tertiary" />
-                              )}
-                            </td>
-                            <td className="py-2 px-2 text-center text-text-secondary">{b.ac_count}</td>
-                            <td className="py-2 px-2 text-right text-text-primary">{b.base_score}</td>
-                            <td
-                              className={`py-2 px-2 text-right ${
-                                b.precision_mod > 0
-                                  ? 'text-emerald-700'
-                                  : b.precision_mod < 0
-                                  ? 'text-rose-700'
-                                  : 'text-text-tertiary'
-                              }`}
-                            >
-                              {b.precision_mod > 0 ? `+${b.precision_mod}` : b.precision_mod}
-                            </td>
-                            <td
-                              className={`py-2 px-2 text-right ${
-                                b.efficiency_mod > 0
-                                  ? 'text-emerald-700'
-                                  : b.efficiency_mod < 0
-                                  ? 'text-rose-700'
-                                  : 'text-text-tertiary'
-                              }`}
-                            >
-                              {b.efficiency_mod > 0 ? `+${b.efficiency_mod}` : b.efficiency_mod}
-                            </td>
-                            <td
-                              className={`py-2 px-2 text-right ${
-                                b.code_quality_mod > 0
-                                  ? 'text-emerald-700'
-                                  : b.code_quality_mod < 0
-                                  ? 'text-rose-700'
-                                  : 'text-text-tertiary'
-                              }`}
-                            >
-                              {b.code_quality_mod > 0 ? `+${b.code_quality_mod}` : b.code_quality_mod}
-                            </td>
-                            <td className="py-2 px-2 text-right font-bold text-brand-primary font-sans">
-                              {b.score}%
-                            </td>
-                          </tr>
-
-                          {isSelected && (
-                            <tr className="bg-card-subtle/70">
-                              <td colSpan={7} className="p-3 font-sans">
-                                <div className="space-y-1.5">
-                                  <p className="text-[11px] font-semibold text-text-primary">
-                                    Chi tiết yếu tố cộng/trừ điểm của {p.fullSubject}:
-                                  </p>
-                                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
-                                    {b.breakdown_items.map((it, idx) => (
-                                      <div
-                                        key={idx}
-                                        className="bg-card p-2 rounded border border-border/50 flex items-start justify-between gap-2"
-                                      >
-                                        <div className="min-w-0">
-                                          <p className="text-xs font-medium text-text-primary truncate">{it.label}</p>
-                                          {it.desc && (
-                                            <p className="text-[10px] text-text-tertiary mt-0.5">{it.desc}</p>
-                                          )}
-                                        </div>
-                                        <span
-                                          className={`font-mono text-xs font-bold shrink-0 ${
-                                            it.val > 0
-                                              ? 'text-emerald-700'
-                                              : it.val < 0
-                                              ? 'text-rose-700'
-                                              : 'text-text-tertiary'
-                                          }`}
-                                        >
-                                          {it.val > 0 ? `+${it.val}đ` : `${it.val}đ`}
-                                        </span>
-                                      </div>
-                                    ))}
-                                  </div>
-                                </div>
-                              </td>
-                            </tr>
-                          )}
-                        </React.Fragment>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          )}
-        </div>
-      )}
     </Card>
   );
 };

@@ -308,7 +308,7 @@ export const ClassStudentRoster: React.FC<ClassStudentRosterProps> = ({
                             </Badge>
                           </div>
                           <span className="text-[11px] text-text-secondary truncate block">
-                            @{st.username}
+                            {st.problem_count} bài đã giải
                           </span>
                         </div>
                       </div>

@@ -1,11 +1,12 @@
 import React from 'react';
-import { Search, ChevronRight, User, Menu, BookOpen, Users } from 'lucide-react';
+import { Search, User, RotateCcw, BookOpen, Users } from 'lucide-react';
 import { Input } from '../ui/input';
-import { Badge } from '../ui/badge';
+import { Role } from '../RoleSelect';
 import { ClassSummaryData, ClassStudentItemData } from '../../types';
 
 interface HeaderProps {
-  activeTab: 'student' | 'teacher' | 'admin';
+  activeTab: Role;
+  onChangeRole: () => void;
   classes?: ClassSummaryData[];
   selectedOrgId?: number;
   onSelectOrgId?: (orgId: number) => void;
@@ -16,11 +17,17 @@ interface HeaderProps {
   searchQuery: string;
   setSearchQuery: (q: string) => void;
   onSearchSubmit: () => void;
-  onToggleMobileMenu?: () => void;
 }
+
+const TAB_LABEL: Record<Role, string> = {
+  student: 'Học sinh',
+  teacher: 'Giáo viên',
+  admin: 'Quản trị viên',
+};
 
 export const Header: React.FC<HeaderProps> = ({
   activeTab,
+  onChangeRole,
   classes = [],
   selectedOrgId,
   onSelectOrgId,
@@ -31,7 +38,6 @@ export const Header: React.FC<HeaderProps> = ({
   searchQuery,
   setSearchQuery,
   onSearchSubmit,
-  onToggleMobileMenu,
 }) => {
   const handleStudentDropdownChange = (newUserId: number) => {
     const found = classStudents.find((s) => s.user_id === newUserId);
@@ -42,39 +48,28 @@ export const Header: React.FC<HeaderProps> = ({
 
   return (
     <header className="h-14 border-b border-border bg-card px-3 sm:px-5 flex items-center justify-between sticky top-0 z-20 gap-2 sm:gap-4">
-      {/* Left: Mobile Menu Trigger + Breadcrumb */}
-      <div className="flex items-center gap-2 text-xs text-text-secondary min-w-0">
-        {onToggleMobileMenu && (
-          <button
-            type="button"
-            onClick={onToggleMobileMenu}
-            className="md:hidden h-8 w-8 grid place-items-center -ml-1 text-text-secondary hover:text-text-primary rounded-md hover:bg-card-subtle focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary"
-            aria-label="Mở menu"
-          >
-            <Menu className="w-4 h-4" />
-          </button>
+      {/* Left: Role Context + Switch */}
+      <div className="flex items-center gap-3 text-xs text-text-secondary min-w-0">
+        <span className="font-semibold text-text-primary">tmath OJ</span>
+        <span className="text-border">/</span>
+        <span className="font-medium text-text-primary truncate">{TAB_LABEL[activeTab]}</span>
+        {activeTab === 'student' && (
+          <span className="flex items-center gap-1.5 text-text-secondary truncate">
+            <User className="w-3.5 h-3.5 text-brand-primary shrink-0" />
+            <span className="truncate max-w-[120px] sm:max-w-[160px]">
+              {studentName || `User ${studentId}`}
+            </span>
+          </span>
         )}
-        <span className="font-semibold text-text-primary hidden md:inline">tmath OJ</span>
-        <ChevronRight className="w-3.5 h-3.5 text-text-tertiary hidden md:inline" />
-        <span className="text-text-secondary truncate">
-          {activeTab === 'student' ? 'Học sinh' : activeTab === 'teacher' ? 'Giáo viên' : 'Quản trị'}
-        </span>
-        <ChevronRight className="w-3.5 h-3.5 text-text-tertiary" />
-        <span className="font-medium text-text-primary flex items-center gap-1.5 truncate">
-          {activeTab === 'student' ? (
-            <>
-              <User className="w-3.5 h-3.5 text-brand-primary shrink-0" />
-              <span className="truncate max-w-[120px] sm:max-w-[160px]">{studentName || `User ${studentId}`}</span>
-              <Badge variant="secondary" className="text-[10px] py-0 px-1 font-mono shrink-0">
-                #{studentId}
-              </Badge>
-            </>
-          ) : activeTab === 'teacher' ? (
-            <span>Quản lý lớp học</span>
-          ) : (
-            <span>Gắn nhãn tự động</span>
-          )}
-        </span>
+        <button
+          type="button"
+          onClick={onChangeRole}
+          className="flex items-center gap-1 text-[11px] text-text-secondary hover:text-text-primary rounded-md px-1.5 py-1 hover:bg-card-subtle transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary"
+          aria-label="Đổi vai trò"
+        >
+          <RotateCcw className="w-3 h-3" />
+          Đổi vai trò
+        </button>
       </div>
 
       {/* Center: Dual Context Selector (Lớp học + Học sinh) */}
@@ -135,7 +130,7 @@ export const Header: React.FC<HeaderProps> = ({
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
           onKeyDown={(e) => e.key === 'Enter' && onSearchSubmit()}
-          placeholder="Tìm bất kỳ học sinh..."
+          placeholder="Tìm học sinh..."
           aria-label="Tìm kiếm học sinh toàn hệ thống"
           className="pl-8 pr-10 sm:pr-12 h-8 text-xs bg-card"
         />

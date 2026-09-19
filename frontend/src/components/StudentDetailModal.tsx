@@ -80,7 +80,7 @@ export const StudentDetailModal: React.FC<StudentDetailModalProps> = ({
                     </Badge>
                   </div>
                   <DialogDescription className="text-xs">
-                    @{data.username} • Hạng{' '}
+                    Hạng{' '}
                     <span className="text-text-primary font-medium">{data.display_rank}</span> •{' '}
                     <span className="font-mono text-sky-700 font-medium">{data.points} pts</span>
                   </DialogDescription>

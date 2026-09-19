@@ -121,38 +121,3 @@
 ::-webkit-scrollbar-thumb:hover {
   background: #94A3B8;
 }
-
-/* Animations */
-@keyframes modal-in {
-  from {
-    opacity: 0;
-    transform: scale(0.97) translateY(6px);
-  }
-  to {
-    opacity: 1;
-    transform: scale(1) translateY(0);
-  }
-}
-
-.animate-modal-in {
-  animation: modal-in 0.18s cubic-bezier(0.16, 1, 0.3, 1);
-}
-
-/* Subtle IDE Scrollbar */
-::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
-}
-
-::-webkit-scrollbar-track {
-  background: var(--bg-app);
-}
-
-::-webkit-scrollbar-thumb {
-  background: var(--border-strong);
-  border-radius: 4px;
-}
-
-::-webkit-scrollbar-thumb:hover {
-  background: #475569;
-}
