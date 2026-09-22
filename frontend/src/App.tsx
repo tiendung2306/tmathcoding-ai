@@ -2,8 +2,11 @@ import React, { useState, useEffect } from 'react';
 import { RoleSelect, Role } from './components/RoleSelect';
 import { Header } from './components/layout/Header';
 import { StudentDashboard } from './pages/StudentDashboard';
-import { TeacherDashboard } from './pages/TeacherDashboard';
 import { AdminDashboard } from './pages/AdminDashboard';
+import { ClassGrid } from './components/ClassGrid';
+import { ClassStudentsGrid } from './components/ClassStudentsGrid';
+import { VirtualClassSessions } from './components/VirtualClassSessions';
+import { VirtualClassLiveRoom } from './pages/VirtualClassLiveRoom';
 import { searchStudents, fetchTeacherClasses, fetchClassStudents } from './services/api';
 import { ClassSummaryData, ClassStudentItemData } from './types';
 import { Badge } from './components/ui/badge';
@@ -12,6 +15,9 @@ import { X, Search } from 'lucide-react';
 
 export function App() {
   const [activeTab, setActiveTab] = useState<Role | null>(null);
+  const [studentStep, setStudentStep] = useState<'classes' | 'students' | 'detail'>('classes');
+  const [virtualClassStep, setVirtualClassStep] = useState<'classes' | 'sessions' | 'live'>('classes');
+  
   const [classes, setClasses] = useState<ClassSummaryData[]>([]);
   const [selectedOrgId, setSelectedOrgId] = useState<number>(19);
   const [classStudents, setClassStudents] = useState<ClassStudentItemData[]>([]);
@@ -19,7 +25,10 @@ export function App() {
 
   const [selectedStudentId, setSelectedStudentId] = useState<number>(7);
   const [selectedStudentName, setSelectedStudentName] = useState<string>('Nguyễn Khắc Tùng Lâm');
-  const [teacherViewMode, setTeacherViewMode] = useState<'roster' | 'heatmap'>('roster');
+  
+  const [selectedSessionId, setSelectedSessionId] = useState<number | null>(null);
+  const [selectedSessionName, setSelectedSessionName] = useState<string>('');
+  const [selectedSessionIsActive, setSelectedSessionIsActive] = useState<boolean>(true);
 
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [searchResults, setSearchResults] = useState<any[]>([]);
@@ -97,9 +106,19 @@ export function App() {
     }
   };
 
+  const handleSelectClass = (orgId: number, className?: string) => {
+    setSelectedOrgId(orgId);
+    if (activeTab === 'student') {
+      setStudentStep('students');
+    } else if (activeTab === 'teacher') {
+      setVirtualClassStep('sessions');
+    }
+  };
+
   const handleSelectStudent = (userId: number, name?: string) => {
     setSelectedStudentId(userId);
     if (name) setSelectedStudentName(name);
+    setStudentStep('detail');
     setActiveTab('student');
     setSearchResults([]);
     setSearchQuery('');
@@ -107,7 +126,16 @@ export function App() {
 
   const handleRoleSelect = (role: Role) => {
     setActiveTab(role);
-    if (role === 'teacher') setTeacherViewMode('roster');
+    if (role === 'student') setStudentStep('classes');
+    if (role === 'teacher') setVirtualClassStep('classes');
+  };
+
+  const handleBackToClasses = () => {
+    setStudentStep('classes');
+  };
+
+  const handleBackToStudents = () => {
+    setStudentStep('students');
   };
 
   const currentClassName = classes.find((c) => c.id === selectedOrgId)?.name;
@@ -122,16 +150,15 @@ export function App() {
       <Header
         activeTab={activeTab}
         onChangeRole={() => setActiveTab(null)}
-        classes={classes}
-        selectedOrgId={selectedOrgId}
-        onSelectOrgId={(id) => setSelectedOrgId(id)}
-        classStudents={classStudents}
         studentId={selectedStudentId}
         studentName={selectedStudentName}
-        onSelectStudent={handleSelectStudent}
         searchQuery={searchQuery}
         setSearchQuery={setSearchQuery}
         onSearchSubmit={handleSearchSubmit}
+        studentStep={studentStep}
+        onNavigateStudentStep={(step) => setStudentStep(step)}
+        virtualClassStep={virtualClassStep}
+        onNavigateVirtualClassStep={(step) => setVirtualClassStep(step)}
       />
 
         {/* Global Search Results Floating Dialog Overlay */}
@@ -200,28 +227,65 @@ export function App() {
         {/* Page Views */}
         <main className="flex-1 overflow-y-auto">
           {activeTab === 'student' ? (
-            <StudentDashboard
-              studentId={selectedStudentId}
-              classStudents={classStudents}
-              currentClassName={currentClassName}
-              onSelectStudent={handleSelectStudent}
-            />
+            studentStep === 'classes' ? (
+              <ClassGrid
+                classes={classes}
+                onSelectClass={handleSelectClass}
+                loading={classes.length === 0}
+              />
+            ) : studentStep === 'students' ? (
+              <ClassStudentsGrid
+                classNameTitle={currentClassName || `Lớp #${selectedOrgId}`}
+                classId={selectedOrgId}
+                students={classStudents}
+                loading={studentsLoading}
+                onSelectStudent={handleSelectStudent}
+                onBackToClasses={handleBackToClasses}
+              />
+            ) : (
+              <StudentDashboard
+                studentId={selectedStudentId}
+                classStudents={classStudents}
+                currentClassName={currentClassName}
+                onSelectStudent={handleSelectStudent}
+                onBackToStudents={handleBackToStudents}
+                onBackToClasses={handleBackToClasses}
+              />
+            )
           ) : activeTab === 'teacher' ? (
-            <TeacherDashboard
-              selectedOrgId={selectedOrgId}
-              onSelectOrgId={(id) => setSelectedOrgId(id)}
-              classes={classes}
-              classStudents={classStudents}
-              studentsLoading={studentsLoading}
-              onSelectStudent={(id, name) => handleSelectStudent(id, name)}
-              initialViewMode={teacherViewMode}
-            />
+            virtualClassStep === 'classes' ? (
+              <ClassGrid
+                classes={classes}
+                onSelectClass={handleSelectClass}
+                loading={classes.length === 0}
+              />
+            ) : virtualClassStep === 'sessions' ? (
+              <VirtualClassSessions
+                selectedOrgId={selectedOrgId}
+                classes={classes}
+                onEnterSession={(sessionId, sessionName, isActive) => {
+                  setSelectedSessionId(sessionId);
+                  setSelectedSessionName(sessionName);
+                  setSelectedSessionIsActive(isActive);
+                  setVirtualClassStep('live');
+                }}
+              />
+            ) : (
+              selectedSessionId && (
+                <VirtualClassLiveRoom
+                  sessionId={selectedSessionId}
+                  sessionName={selectedSessionName}
+                  isActive={selectedSessionIsActive}
+                  onSessionStopped={() => setVirtualClassStep('sessions')}
+                />
+              )
+            )
           ) : (
             <AdminDashboard />
           )}
         </main>
     </div>
   );
-}
+};
 
 export default App;

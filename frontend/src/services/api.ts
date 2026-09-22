@@ -117,3 +117,28 @@ export const runAutoTagBatch = async (batchSize: number = 10): Promise<AutoTagBa
   return res.data;
 };
 
+
+// Virtual Class API
+export const getVirtualClassSessions = async (orgId: number) => {
+  const res = await axios.get(`${API_BASE_URL}/virtual-class/${orgId}/sessions`);
+  return res.data;
+};
+
+export const startVirtualClass = async (orgId: number, name?: string) => {
+  const res = await axios.post(`${API_BASE_URL}/virtual-class/${orgId}/start`, null, {
+    params: { name }
+  });
+  return res.data;
+};
+
+export const stopVirtualClass = async (sessionId: number) => {
+  const res = await axios.post(`${API_BASE_URL}/virtual-class/sessions/${sessionId}/stop`);
+  return res.data;
+};
+
+export const fetchLiveSubmissions = async (sessionId: number, sinceId: number = 0) => {
+  const res = await axios.get(`${API_BASE_URL}/virtual-class/sessions/${sessionId}/live-submissions`, {
+    params: { since_id: sinceId }
+  });
+  return res.data;
+};

@@ -8,7 +8,7 @@ interface RoleSelectProps {
 
 const ROLE_OPTIONS: { id: Role; label: string }[] = [
   { id: 'student', label: 'Học sinh' },
-  { id: 'teacher', label: 'Giáo viên' },
+  { id: 'teacher', label: 'Lớp học ảo' },
   { id: 'admin', label: 'Quản trị viên' },
 ];
 
@@ -16,12 +16,14 @@ export const RoleSelect: React.FC<RoleSelectProps> = ({ onSelectRole }) => {
   return (
     <div className="min-h-screen bg-app flex items-center justify-center px-4">
       <div className="w-full max-w-md">
-        <img
-          src="/tmath-logo.png"
-          alt="TMATH EDU - Nuôi dưỡng đam mê Toán - Tin"
-          className="h-44 w-auto mx-auto mb-10 select-none"
-          draggable={false}
-        />
+        <div className="bg-slate-900 p-6 rounded-2xl mx-auto mb-10 w-fit shadow-lg">
+          <img
+            src="/tmath-logo.png"
+            alt="TMATH EDU - Nuôi dưỡng đam mê Toán - Tin"
+            className="h-32 w-auto select-none"
+            draggable={false}
+          />
+        </div>
 
         <div className="grid grid-cols-3 gap-2.5" role="group" aria-label="Chọn vai trò">
           {ROLE_OPTIONS.map((option) => (

@@ -31,6 +31,7 @@ import {
   BookOpen,
   ChevronLeft,
   ChevronRight,
+  ArrowLeft,
 } from 'lucide-react';
 
 interface StudentDashboardProps {
@@ -38,6 +39,8 @@ interface StudentDashboardProps {
   classStudents?: ClassStudentItemData[];
   currentClassName?: string;
   onSelectStudent?: (userId: number, name: string) => void;
+  onBackToStudents?: () => void;
+  onBackToClasses?: () => void;
 }
 
 export const StudentDashboard: React.FC<StudentDashboardProps> = ({
@@ -45,6 +48,8 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
   classStudents = [],
   currentClassName,
   onSelectStudent,
+  onBackToStudents,
+  onBackToClasses,
 }) => {
   const [timeRange, setTimeRange] = useState<TimeRange>('all');
   const [data, setData] = useState<SkillTreeResponseData | null>(null);
@@ -162,65 +167,101 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
 
   return (
     <div className="p-3.5 sm:p-5 lg:p-6 max-w-7xl mx-auto space-y-4">
-      {/* Class Peer Switcher Bar (Thanh duyệt học sinh cùng lớp) */}
-      {classStudents.length > 1 && (
-        <div className="bg-card border border-border rounded-lg p-2.5 px-3.5 flex flex-wrap items-center justify-between gap-2.5">
-          <div className="flex items-center gap-2 text-xs min-w-0">
-            <BookOpen className="w-3.5 h-3.5 text-brand-primary shrink-0" />
-            <span className="text-text-secondary truncate">
-              {currentClassName || 'Danh sách lớp'}
-            </span>
+      {/* Top Breadcrumb & Peer Switcher Bar */}
+      <div className="bg-card border border-border rounded-lg p-2.5 px-3.5 flex flex-wrap items-center justify-between gap-2.5">
+        <div className="flex items-center gap-2 text-xs min-w-0">
+          <BookOpen className="w-3.5 h-3.5 text-brand-primary shrink-0" />
+          {onBackToClasses && (
+            <button
+              type="button"
+              onClick={onBackToClasses}
+              className="text-text-secondary hover:text-brand-primary hover:underline font-medium transition-colors"
+            >
+              Tất cả lớp học
+            </button>
+          )}
+          {onBackToClasses && (currentClassName || onBackToStudents) && (
             <span className="text-border">/</span>
-            <span className="font-mono text-text-tertiary">
-              Học sinh {currentIndex + 1} / {classStudents.length}
+          )}
+          {onBackToStudents ? (
+            <button
+              type="button"
+              onClick={onBackToStudents}
+              className="text-text-secondary hover:text-brand-primary hover:underline font-medium truncate max-w-[140px] sm:max-w-[200px] transition-colors"
+            >
+              {currentClassName || 'Danh sách lớp'}
+            </button>
+          ) : (
+            <span className="text-text-secondary truncate max-w-[140px] sm:max-w-[200px]">
+              {currentClassName}
             </span>
-          </div>
-
-          <div className="flex items-center gap-1.5 ml-auto">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => prevStudent && onSelectStudent?.(prevStudent.user_id, prevStudent.name)}
-              disabled={!prevStudent}
-              className="h-7 px-2 text-xs gap-1"
-              title={prevStudent ? `Học sinh trước: ${prevStudent.name}` : 'Đây là học sinh đầu tiên'}
-            >
-              <ChevronLeft className="w-3.5 h-3.5" />
-              <span className="hidden sm:inline">Trước</span>
-            </Button>
-
-            {/* Quick dropdown jump to student */}
-            <select
-              value={studentId}
-              onChange={(e) => {
-                const targetId = Number(e.target.value);
-                const st = classStudents.find((s) => s.user_id === targetId);
-                if (st) onSelectStudent?.(st.user_id, st.name);
-              }}
-              aria-label="Chuyển nhanh học sinh trong lớp"
-              className="h-7 rounded-sm border border-border bg-card px-2 text-xs text-text-primary cursor-pointer max-w-[150px] sm:max-w-[200px] truncate focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-brand-primary"
-            >
-              {classStudents.map((s, idx) => (
-                <option key={s.user_id} value={s.user_id}>
-                  {idx + 1}. {s.name} (#{s.user_id})
-                </option>
-              ))}
-            </select>
-
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => nextStudent && onSelectStudent?.(nextStudent.user_id, nextStudent.name)}
-              disabled={!nextStudent}
-              className="h-7 px-2 text-xs gap-1"
-              title={nextStudent ? `Học sinh kế tiếp: ${nextStudent.name}` : 'Đây là học sinh cuối cùng'}
-            >
-              <span className="hidden sm:inline">Sau</span>
-              <ChevronRight className="w-3.5 h-3.5" />
-            </Button>
-          </div>
+          )}
+          <span className="text-border">/</span>
+          <span className="font-semibold text-text-primary truncate max-w-[140px] sm:max-w-[200px]">
+            {data.student_name || `Học sinh #${studentId}`}
+          </span>
         </div>
-      )}
+
+        <div className="flex items-center gap-1.5 ml-auto">
+          {onBackToStudents && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={onBackToStudents}
+              className="h-7 px-2 text-xs gap-1 text-text-secondary hover:text-text-primary"
+              title="Quay lại danh sách học sinh của lớp"
+            >
+              <ArrowLeft className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">Danh sách HS</span>
+            </Button>
+          )}
+
+          {classStudents.length > 1 && (
+            <>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => prevStudent && onSelectStudent?.(prevStudent.user_id, prevStudent.name)}
+                disabled={!prevStudent}
+                className="h-7 px-2 text-xs gap-1"
+                title={prevStudent ? `Học sinh trước: ${prevStudent.name}` : 'Đây là học sinh đầu tiên'}
+              >
+                <ChevronLeft className="w-3.5 h-3.5" />
+                <span className="hidden sm:inline">Trước</span>
+              </Button>
+
+              <select
+                value={studentId}
+                onChange={(e) => {
+                  const targetId = Number(e.target.value);
+                  const st = classStudents.find((s) => s.user_id === targetId);
+                  if (st) onSelectStudent?.(st.user_id, st.name);
+                }}
+                aria-label="Chuyển nhanh học sinh trong lớp"
+                className="h-7 rounded-sm border border-border bg-card px-2 text-xs text-text-primary cursor-pointer max-w-[130px] sm:max-w-[180px] truncate focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-brand-primary"
+              >
+                {classStudents.map((s, idx) => (
+                  <option key={s.user_id} value={s.user_id}>
+                    {idx + 1}. {s.name}
+                  </option>
+                ))}
+              </select>
+
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => nextStudent && onSelectStudent?.(nextStudent.user_id, nextStudent.name)}
+                disabled={!nextStudent}
+                className="h-7 px-2 text-xs gap-1"
+                title={nextStudent ? `Học sinh kế tiếp: ${nextStudent.name}` : 'Đây là học sinh cuối cùng'}
+              >
+                <span className="hidden sm:inline">Sau</span>
+                <ChevronRight className="w-3.5 h-3.5" />
+              </Button>
+            </>
+          )}
+        </div>
+      </div>
 
       {/* Student Overview Header Card */}
       <Card className="bg-card border-border">

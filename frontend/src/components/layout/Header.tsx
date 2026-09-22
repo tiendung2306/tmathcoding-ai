@@ -1,144 +1,130 @@
 import React from 'react';
-import { Search, User, RotateCcw, BookOpen, Users } from 'lucide-react';
+import { Search, User, RotateCcw } from 'lucide-react';
 import { Input } from '../ui/input';
 import { Role } from '../RoleSelect';
-import { ClassSummaryData, ClassStudentItemData } from '../../types';
 
 interface HeaderProps {
   activeTab: Role;
   onChangeRole: () => void;
-  classes?: ClassSummaryData[];
-  selectedOrgId?: number;
-  onSelectOrgId?: (orgId: number) => void;
-  classStudents?: ClassStudentItemData[];
   studentId: number;
   studentName?: string;
-  onSelectStudent?: (studentId: number, studentName: string) => void;
   searchQuery: string;
   setSearchQuery: (q: string) => void;
   onSearchSubmit: () => void;
+  studentStep?: 'classes' | 'students' | 'detail';
+  onNavigateStudentStep?: (step: 'classes' | 'students' | 'detail') => void;
+  virtualClassStep?: 'classes' | 'sessions' | 'live';
+  onNavigateVirtualClassStep?: (step: 'classes' | 'sessions' | 'live') => void;
 }
 
 const TAB_LABEL: Record<Role, string> = {
   student: 'Học sinh',
-  teacher: 'Giáo viên',
+  teacher: 'Lớp học ảo',
   admin: 'Quản trị viên',
 };
 
 export const Header: React.FC<HeaderProps> = ({
   activeTab,
   onChangeRole,
-  classes = [],
-  selectedOrgId,
-  onSelectOrgId,
-  classStudents = [],
   studentId,
   studentName,
-  onSelectStudent,
   searchQuery,
   setSearchQuery,
   onSearchSubmit,
+  studentStep = 'classes',
+  onNavigateStudentStep,
+  virtualClassStep = 'classes',
+  onNavigateVirtualClassStep,
 }) => {
-  const handleStudentDropdownChange = (newUserId: number) => {
-    const found = classStudents.find((s) => s.user_id === newUserId);
-    if (found && onSelectStudent) {
-      onSelectStudent(found.user_id, found.name);
-    }
-  };
 
   return (
-    <header className="h-14 border-b border-border bg-card px-3 sm:px-5 flex items-center justify-between sticky top-0 z-20 gap-2 sm:gap-4">
-      {/* Left: Role Context + Switch */}
-      <div className="flex items-center gap-3 text-xs text-text-secondary min-w-0">
-        <span className="font-semibold text-text-primary">tmath OJ</span>
-        <span className="text-border">/</span>
-        <span className="font-medium text-text-primary truncate">{TAB_LABEL[activeTab]}</span>
-        {activeTab === 'student' && (
-          <span className="flex items-center gap-1.5 text-text-secondary truncate">
-            <User className="w-3.5 h-3.5 text-brand-primary shrink-0" />
-            <span className="truncate max-w-[120px] sm:max-w-[160px]">
-              {studentName || `User ${studentId}`}
+    <header className="h-14 border-b border-border bg-card px-3 sm:px-5 grid grid-cols-[auto_minmax(0,1fr)] sm:grid-cols-[minmax(0,1fr)_minmax(0,36rem)_minmax(0,1fr)] items-center gap-2 sm:gap-4 sticky top-0 z-20">
+      {/* Left: Brand + Role Context + Switch */}
+      <div className="flex items-center gap-2 sm:gap-3 text-xs text-text-secondary min-w-0">
+        <div className="flex items-center gap-1.5 shrink-0">
+          <img
+            src="/tmath-logo.png"
+            alt=""
+            className="h-6 w-6 rounded-sm object-contain select-none"
+            draggable={false}
+          />
+          <span className="hidden sm:inline font-semibold text-text-primary">tmath OJ</span>
+        </div>
+        <span className="hidden sm:inline text-border">/</span>
+        <div className="hidden sm:flex items-center gap-2 min-w-0">
+          {activeTab === 'student' && studentStep !== 'classes' ? (
+            <button
+              type="button"
+              onClick={() => onNavigateStudentStep?.('classes')}
+              className="font-medium text-text-primary hover:text-brand-primary hover:underline transition-colors"
+            >
+              {TAB_LABEL[activeTab]}
+            </button>
+          ) : activeTab === 'teacher' && virtualClassStep !== 'classes' ? (
+            <button
+              type="button"
+              onClick={() => onNavigateVirtualClassStep?.('classes')}
+              className="font-medium text-text-primary hover:text-brand-primary hover:underline transition-colors"
+            >
+              {TAB_LABEL[activeTab]}
+            </button>
+          ) : (
+            <span className="font-medium text-text-primary truncate">{TAB_LABEL[activeTab]}</span>
+          )}
+          {activeTab === 'teacher' && virtualClassStep === 'live' && (
+            <span className="flex items-center gap-1.5 text-text-secondary truncate">
+              <span className="text-border">/</span>
+              <button
+                type="button"
+                onClick={() => onNavigateVirtualClassStep?.('sessions')}
+                className="font-medium text-text-primary hover:text-brand-primary hover:underline transition-colors truncate max-w-[120px] sm:max-w-[160px]"
+              >
+                Phiên học
+              </button>
             </span>
-          </span>
-        )}
+          )}
+          {activeTab === 'student' && studentStep === 'detail' && (
+            <span className="flex items-center gap-1.5 text-text-secondary truncate">
+              <span className="text-border">/</span>
+              <User className="w-3.5 h-3.5 text-brand-primary shrink-0" />
+              <span className="truncate max-w-[120px] sm:max-w-[160px]">
+                {studentName || `User ${studentId}`}
+              </span>
+            </span>
+          )}
+        </div>
         <button
           type="button"
           onClick={onChangeRole}
-          className="flex items-center gap-1 text-[11px] text-text-secondary hover:text-text-primary rounded-md px-1.5 py-1 hover:bg-card-subtle transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary"
+          className="flex items-center gap-1 text-[11px] text-text-secondary hover:text-text-primary rounded-md px-1.5 py-1 hover:bg-card-subtle transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary shrink-0"
           aria-label="Đổi vai trò"
         >
           <RotateCcw className="w-3 h-3" />
-          Đổi vai trò
+          <span className="hidden sm:inline">Đổi vai trò</span>
         </button>
       </div>
 
-      {/* Center: Dual Context Selector (Lớp học + Học sinh) */}
-      {activeTab !== 'admin' && classes.length > 0 && (
-        <div className="hidden lg:flex items-center gap-2 bg-card-subtle/80 border border-border rounded-md px-2 py-1">
-          {/* Chọn Lớp */}
-          <div className="flex items-center gap-1.5 min-w-0">
-            <BookOpen className="w-3.5 h-3.5 text-text-tertiary shrink-0" />
-            <label htmlFor="header-class-select" className="sr-only">Chọn lớp học</label>
-            <select
-              id="header-class-select"
-              value={selectedOrgId || ''}
-              onChange={(e) => onSelectOrgId?.(Number(e.target.value))}
-              aria-label="Chọn lớp học"
-              className="bg-transparent text-xs text-text-primary rounded cursor-pointer max-w-[180px] truncate focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-brand-primary py-0.5"
-            >
-              {classes.map((c) => (
-                <option key={c.id} value={c.id} className="bg-card text-text-primary">
-                  {c.name} ({c.member_count} HS)
-                </option>
-              ))}
-            </select>
-          </div>
-
-          <span className="text-border text-sm">/</span>
-
-          {/* Chọn Học sinh trong lớp */}
-          <div className="flex items-center gap-1.5 min-w-0">
-            <Users className="w-3.5 h-3.5 text-text-tertiary shrink-0" />
-            <label htmlFor="header-student-select" className="sr-only">Chọn học sinh trong lớp</label>
-            <select
-              id="header-student-select"
-              value={studentId}
-              onChange={(e) => handleStudentDropdownChange(Number(e.target.value))}
-              aria-label="Chọn học sinh trong lớp"
-              className="bg-transparent text-xs text-text-primary rounded cursor-pointer max-w-[180px] truncate focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-brand-primary py-0.5"
-            >
-              {classStudents.length === 0 ? (
-                <option value={studentId} className="bg-card text-text-primary">
-                  {studentName || `User #${studentId}`}
-                </option>
-              ) : (
-                classStudents.map((s) => (
-                  <option key={s.user_id} value={s.user_id} className="bg-card text-text-primary">
-                    {s.name} (#{s.user_id})
-                  </option>
-                ))
-              )}
-            </select>
-          </div>
+      {/* Center: Global Search — luôn đứng giữa nhờ cột giữa của grid */}
+      <div className="min-w-0">
+        <div className="relative w-full">
+          <Input
+            type="text"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && onSearchSubmit()}
+            placeholder="Tìm học sinh..."
+            aria-label="Tìm kiếm học sinh toàn hệ thống"
+            className="pl-8 pr-12 h-8 text-xs bg-card"
+          />
+          <Search className="w-3.5 h-3.5 text-text-tertiary absolute left-2.5 top-2.5 pointer-events-none" />
+          <kbd className="hidden sm:inline-flex absolute right-2 top-1.5 pointer-events-none h-5 select-none items-center rounded-sm border border-border bg-card-subtle px-1.5 font-mono text-[9px] font-medium text-text-secondary">
+            Enter
+          </kbd>
         </div>
-      )}
-
-      {/* Right: Global Search Input */}
-      <div className="relative w-36 sm:w-56 md:w-64 shrink-0">
-        <Input
-          type="text"
-          value={searchQuery}
-          onChange={(e) => setSearchQuery(e.target.value)}
-          onKeyDown={(e) => e.key === 'Enter' && onSearchSubmit()}
-          placeholder="Tìm học sinh..."
-          aria-label="Tìm kiếm học sinh toàn hệ thống"
-          className="pl-8 pr-10 sm:pr-12 h-8 text-xs bg-card"
-        />
-        <Search className="w-3.5 h-3.5 text-text-tertiary absolute left-2.5 top-2.5 pointer-events-none" />
-        <kbd className="hidden sm:inline-flex absolute right-2 top-1.5 pointer-events-none h-5 select-none items-center rounded-sm border border-border bg-card-subtle px-1.5 font-mono text-[9px] font-medium text-text-secondary">
-          Enter
-        </kbd>
       </div>
+
+      {/* Cột phải trống (từ sm trở lên): giữ search thẳng giữa */}
+      <div aria-hidden="true" className="hidden sm:block" />
     </header>
   );
 };

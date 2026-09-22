@@ -12,6 +12,13 @@ async def lifespan(app: FastAPI):
     await init_redis_pool()
     await job_manager.startup_recovery()
     job_manager.start_sweeper(interval_seconds=30)
+    
+    # Init DB tables (specifically VirtualClassSession)
+    from app.core.database import engine, Base
+    import app.models.virtual_class
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+        
     yield
     # Shutdown: stop sweeper and close Redis connections
     job_manager.stop_sweeper()
