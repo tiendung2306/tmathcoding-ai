@@ -27,7 +27,7 @@ export const VirtualClassLiveRoom: React.FC<VirtualClassLiveRoomProps> = ({
 
   // Poll submissions every 3 seconds if active, or just fetch once if not active
   useEffect(() => {
-    let intervalId: NodeJS.Timeout;
+    let intervalId: ReturnType<typeof setInterval> | undefined;
     
     const fetchSubmissions = async () => {
       try {

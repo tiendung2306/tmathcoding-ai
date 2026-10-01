@@ -1,4 +1,6 @@
 from datetime import datetime, timedelta
+import asyncio
+from app.services.source_cleaner import prepare_source
 from typing import Dict, List, Optional, Tuple
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
@@ -6,6 +8,7 @@ from fastapi import HTTPException
 
 from app.models.dmoj import (
     JudgeSubmission,
+    JudgeLanguage,
     JudgeProblem,
     JudgeProblemTypes,
     JudgeProfile,
@@ -277,11 +280,12 @@ class AlgorithmCompetencyService:
 
         sources_map: Dict[int, str] = {}
         if all_sample_ids:
-            src_stmt = select(JudgeSubmissionsource.submission_id, JudgeSubmissionsource.source).where(
+            src_stmt = select(JudgeSubmissionsource.submission_id, JudgeSubmissionsource.source, JudgeLanguage.key).join(JudgeSubmission, JudgeSubmission.id == JudgeSubmissionsource.submission_id).outerjoin(JudgeLanguage, JudgeLanguage.id == JudgeSubmission.language_id).where(
                 JudgeSubmissionsource.submission_id.in_(all_sample_ids)
             )
-            for sid, src in (await db.execute(src_stmt)).all():
-                sources_map[sid] = src or ""
+            for sid, src, language_key in (await db.execute(src_stmt)).all():
+                prepared = await asyncio.to_thread(prepare_source, src or "", language_key or "unknown")
+                sources_map[sid] = prepared.analysis_source
 
         # 4. Chấm điểm từng pillar qua CompetencyEvaluator
         scores: Dict[str, float] = {}

@@ -20,6 +20,7 @@ import {
   Code2,
   ListChecks,
   Stethoscope,
+  Loader2,
   Copy,
   Check,
   Clock,
@@ -56,7 +57,6 @@ export const SubmissionDetailModal: React.FC<SubmissionDetailModalProps> = ({
   // AI Code Doctor diagnosis state
   const [diagnosis, setDiagnosis] = useState<CodeDoctorDiagnosisData | null>(null);
   const [diagnosing, setDiagnosing] = useState<boolean>(false);
-  const [diagnosisProgress, setDiagnosisProgress] = useState<number>(0);
   const [diagnosisError, setDiagnosisError] = useState<string | null>(null);
   const pollIntervalRef = useRef<any>(null);
 
@@ -77,7 +77,6 @@ export const SubmissionDetailModal: React.FC<SubmissionDetailModalProps> = ({
     clearPolling();
     setDiagnosing(true);
     setDiagnosisError(null);
-    setDiagnosisProgress(15);
     setActiveTab('diagnosis');
     try {
       const initRes = await requestCodeDoctor(id, forceRefresh);
@@ -85,7 +84,6 @@ export const SubmissionDetailModal: React.FC<SubmissionDetailModalProps> = ({
       // 1. Result already available from Redis Cache
       if (initRes.status === 'COMPLETED' && initRes.result?.diagnosis) {
         setDiagnosis(initRes.result.diagnosis);
-        setDiagnosisProgress(100);
         setDiagnosing(false);
         return;
       }
@@ -99,12 +97,10 @@ export const SubmissionDetailModal: React.FC<SubmissionDetailModalProps> = ({
         attempts += 1;
         try {
           const jobRes = await fetchJobStatus(jobId);
-          setDiagnosisProgress(jobRes.progress || Math.min(20 + attempts * 3, 90));
 
           if (jobRes.status === 'COMPLETED') {
             clearPolling();
             setDiagnosis(jobRes.result?.diagnosis || null);
-            setDiagnosisProgress(100);
             setDiagnosing(false);
           } else if (jobRes.status === 'FAILED') {
             clearPolling();
@@ -138,7 +134,6 @@ export const SubmissionDetailModal: React.FC<SubmissionDetailModalProps> = ({
       setActiveTab(initialTab);
       setDiagnosis(null);
       setDiagnosisError(null);
-      setDiagnosisProgress(0);
       if (initialTab === 'diagnosis') {
         runDiagnosisFor(submissionId);
       }
@@ -148,7 +143,6 @@ export const SubmissionDetailModal: React.FC<SubmissionDetailModalProps> = ({
       setError(null);
       setDiagnosis(null);
       setDiagnosisError(null);
-      setDiagnosisProgress(0);
     }
   }, [isOpen, submissionId, initialTab]);
 
@@ -589,27 +583,16 @@ export const SubmissionDetailModal: React.FC<SubmissionDetailModalProps> = ({
               {activeTab === 'diagnosis' && (
                 <div className="space-y-3.5">
                   {diagnosing ? (
-                    <div className="rounded-md border border-border bg-card p-6 space-y-3 text-center">
-                      <div className="p-3 w-12 h-12 rounded-full bg-red-50 border border-red-200 text-red-600 mx-auto flex items-center justify-center animate-pulse">
-                        <Stethoscope className="w-6 h-6" />
+                    <div role="status" aria-live="polite" className="rounded-md border border-border bg-card p-6 space-y-3 text-center">
+                      <div className="p-3 w-12 h-12 rounded-full bg-red-50 border border-red-200 text-red-600 mx-auto flex items-center justify-center">
+                        <Loader2 aria-hidden="true" className="w-6 h-6 motion-safe:animate-spin" />
                       </div>
                       <h4 className="text-xs font-semibold text-text-primary">
                         AI Code Doctor đang phân tích mã nguồn và các test case lỗi
                       </h4>
                       <p className="text-[11px] text-text-secondary max-w-md mx-auto leading-relaxed">
-                        Hệ thống đang đối chiếu đề bài, các ràng buộc thời gian, bộ nhớ và các trường hợp kiểm thử bị lỗi để xây dựng câu hỏi gợi mở tư duy.
+                        Hệ thống đang đối chiếu đề bài, mã nguồn và các trường hợp kiểm thử bị lỗi để đưa ra chẩn đoán.
                       </p>
-                      <div className="pt-2 max-w-xs mx-auto space-y-1.5">
-                        <div className="h-1.5 w-full bg-border rounded-full overflow-hidden">
-                          <div
-                            className="h-full bg-red-600 transition-all duration-500 rounded-full"
-                            style={{ width: `${diagnosisProgress}%` }}
-                          />
-                        </div>
-                        <span className="text-[10px] font-mono text-text-secondary">
-                          Đang xử lý ngầm ({diagnosisProgress}%)
-                        </span>
-                      </div>
                     </div>
                   ) : diagnosisError ? (
                     <div className="rounded-md border border-red-200 bg-red-50 p-4 space-y-2 text-center">

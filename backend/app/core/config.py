@@ -1,5 +1,5 @@
 from pydantic_settings import BaseSettings, SettingsConfigDict
-from pydantic import field_validator
+from pydantic import Field, field_validator
 from typing import List, Union
 import json
 import os
@@ -37,6 +37,7 @@ class Settings(BaseSettings):
     LLM_MAX_TOKENS: int = 2048
     LLM_TOP_P: float = 0.95
     LLM_CONTEXT_WINDOW: int = 8192
+    LLM_REQUEST_TIMEOUT_SECONDS: float = Field(default=240.0, gt=0, allow_inf_nan=False)
     
     # CORS Origins
     CORS_ORIGINS: Union[List[str], str] = ["http://localhost:5173"]

@@ -25,7 +25,7 @@ tmathcoding/
 │   ├── app/
 │   │   ├── core/
 │   │   │   ├── config.py         # Nạp biến môi trường động & LLM Hyperparameters từ .env
-│   │   │   └── llm_adapter.py    # LLM Adapter chuẩn (Instructor + LiteLLM Async, MD_JSON mode)
+│   │   │   └── llm_adapter.py    # AsyncOpenAI/HTTPX cho Ollama, Instructor JSON; LiteLLM cho provider khác
 │   │   ├── services/
 │   │   └── main.py
 │   └── Dockerfile
@@ -49,6 +49,7 @@ LLM_TEMPERATURE=0.2          # Độ sáng tạo (0.0: Chính xác/Phân tích c
 LLM_MAX_TOKENS=2048          # Số lượng token tối đa trong 1 câu trả lời
 LLM_TOP_P=0.95               # Nucleus sampling probability
 LLM_CONTEXT_WINDOW=8192      # Kích thước cửa sổ ngữ cảnh (Context Window / num_ctx)
+LLM_REQUEST_TIMEOUT_SECONDS=240 # Deadline mặc định, bao gồm retry; Code Doctor dùng 90s, auto-tag 240s
 ```
 
 ---
@@ -106,3 +107,19 @@ docker exec -it tmath-backend python /scripts/seed_mysql.py
 * **tmath React Frontend Dashboard:** `http://localhost:5173`
 * **FastAPI OpenAPI Swagger Docs:** `http://localhost:8000/docs`
 * **Health Check Endpoint:** `http://localhost:8000/health`
+
+## Phân tích nguồn và vòng đời LLM
+
+Code Doctor, auto-tag và phân tích năng lực dùng bản nguồn đã làm sạch; mã gốc trong DB và giao diện không bị sửa. C/C++ dùng Tree-sitter, Python 3 dùng AST/tokenize, Python 2/Pascal dùng Pygments. Java/C#/Rust/Text, nguồn quá 1 MiB hoặc cú pháp không chắc chắn được giữ nguyên. Prompt có ánh xạ dòng gốc; nếu vượt ngân sách, chọn đơn vị cú pháp nguyên vẹn và báo thiếu ngữ cảnh. Chưa có tokenizer chính xác hoặc chọn hàm theo call graph cho model GGUF tùy biến.
+
+Thinking giữ mặc định của model. Với cấu hình Ollama/OpenAI-compatible, mỗi request sở hữu kết nối HTTP bất đồng bộ; khi coroutine hết deadline hoặc bị hủy, socket được đóng để Ollama ngừng xử lý. Deadline bao gồm retry kiểm tra JSON. Đóng modal/ngừng polling không hủy job nền. Chẩn đoán thành công được cache 7 ngày; lời khuyên dự phòng chỉ cache 5 phút và không giữ trong cache RAM. Reasoning chưa có final answer hoặc câu trả lời bị cắt do hết token không được coi là chẩn đoán hoàn tất.
+
+Kiểm thử backend trong stack Docker đang chạy:
+
+```powershell
+docker cp backend/tests/. tmath-backend:/tmp/tmath-tests
+docker exec tmath-backend env PYTHONPATH=/app python -m unittest discover -s /tmp/tmath-tests -v
+docker exec tmath-backend env PYTHONPATH=/app python /scripts/test_auto_tagging.py
+```
+
+`scripts/verify_llm_cancellation.py` kiểm tra hủy/timeout và phản hồi sau đó trên Ollama thật, không ghi dữ liệu ứng dụng. `scripts/benchmark_llm_latency.py` đo CPU, thinking và cache prompt; đây là probe chẩn đoán, không phải cấu hình production. Dependencies mới cần được cài qua rebuild backend khi triển khai sang máy khác.
