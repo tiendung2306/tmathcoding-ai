@@ -20,6 +20,7 @@ export default {
           DEFAULT: "var(--border-subtle)",
           subtle: "var(--border-subtle)",
           strong: "var(--border-strong)",
+          control: "var(--border-control)",
         },
         text: {
           primary: "var(--text-primary)",

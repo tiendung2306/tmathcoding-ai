@@ -1,4 +1,8 @@
-import React, { useEffect, useState, useMemo } from 'react';
+import React, { useState, useMemo } from 'react';
+import { useMutation, useQuery } from '@tanstack/react-query';
+import { queryClient } from '../lib/queryClient';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
+import { studentUrl } from '../lib/navigation';
 import {
   fetchSkillTree,
   fetchTagAnalytics,
@@ -7,13 +11,9 @@ import {
   fetchFailedSubmissions,
 } from '../services/api';
 import {
-  SkillTreeResponseData,
   CodeDoctorResponseData,
-  TagAnalyticsResponseData,
-  AICommentaryResponseData,
   ClassStudentItemData,
   TimeRange,
-  FailedSubmissionItem,
 } from '../types';
 import { BloomRadar } from '../components/BloomRadar';
 import { SkillTree } from '../components/SkillTree';
@@ -24,94 +24,50 @@ import { TagCompletionGrid } from '../components/TagCompletionGrid';
 import { TimeRangeFilter } from '../components/TimeRangeFilter';
 import { ErrorPanel } from '../components/ErrorPanel';
 import { Card, CardContent } from '../components/ui/card';
-import { Button } from '../components/ui/button';
 import { Badge } from '../components/ui/badge';
 import { Skeleton } from '../components/ui/skeleton';
 import {
-  BookOpen,
   ChevronLeft,
   ChevronRight,
-  ArrowLeft,
 } from 'lucide-react';
 
 interface StudentDashboardProps {
   studentId: number;
+  studentName: string;
   classStudents?: ClassStudentItemData[];
-  currentClassName?: string;
-  onSelectStudent?: (userId: number, name: string) => void;
-  onBackToStudents?: () => void;
-  onBackToClasses?: () => void;
+  classId?: number;
+  listSearch?: string;
+  rosterSearch?: string;
 }
 
 export const StudentDashboard: React.FC<StudentDashboardProps> = ({
   studentId,
+  studentName,
   classStudents = [],
-  currentClassName,
-  onSelectStudent,
-  onBackToStudents,
-  onBackToClasses,
+  classId,
+  listSearch = '',
+  rosterSearch = '',
 }) => {
-  const [timeRange, setTimeRange] = useState<TimeRange>('all');
-  const [data, setData] = useState<SkillTreeResponseData | null>(null);
-  const [tagData, setTagData] = useState<TagAnalyticsResponseData | null>(null);
-  const [aiData, setAiData] = useState<AICommentaryResponseData | null>(null);
-  const [aiLoading, setAiLoading] = useState<boolean>(true);
-  const [aiRefreshing, setAiRefreshing] = useState<boolean>(false);
-  const [aiError, setAiError] = useState<string | null>(null);
-  const [loading, setLoading] = useState<boolean>(true);
-  const [error, setError] = useState<string | null>(null);
+  const [params, setParams] = useSearchParams();
+  const navigate = useNavigate();
+  const rangeValue = params.get('range') as TimeRange;
+  const timeRange: TimeRange = ['1d', '7d', '30d', '1y', 'all'].includes(rangeValue) ? rangeValue : 'all';
+  // Shared reads finish into their own cache, including across StrictMode remounts.
+  const skill = useQuery({ queryKey: ['student', studentId, 'skill', timeRange], queryFn: () => fetchSkillTree(studentId, timeRange) });
+  const tags = useQuery({ queryKey: ['student', studentId, 'tags', timeRange], queryFn: () => fetchTagAnalytics(studentId, timeRange) });
+  const failed = useQuery({ queryKey: ['student', studentId, 'failed'], queryFn: () => fetchFailedSubmissions(studentId) });
+  const ai = useQuery({ queryKey: ['student', studentId, 'ai', timeRange], queryFn: () => fetchAICommentary(studentId, timeRange), staleTime: 5 * 60_000 });
+  const refreshAI = useMutation({
+    mutationFn: (range: TimeRange) => fetchAICommentary(studentId, range, true),
+    onSuccess: (result, range) => queryClient.setQueryData(['student', studentId, 'ai', range], result),
+  });
+  const data = skill.data;
+  const tagData = tags.data;
   const [doctorModalData, setDoctorModalData] = useState<CodeDoctorResponseData | null>(null);
-  const [failedSubmissions, setFailedSubmissions] = useState<FailedSubmissionItem[]>([]);
   const [diagnosingId, setDiagnosingId] = useState<number | null>(null);
 
-  useEffect(() => {
-    loadData(timeRange);
-  }, [studentId]);
-
-  const loadData = async (range: TimeRange = timeRange) => {
-    setLoading(true);
-    setError(null);
-    loadAICommentary(false, range);
-    try {
-      const [skillRes, tagRes, failedRes] = await Promise.allSettled([
-        fetchSkillTree(studentId, range),
-        fetchTagAnalytics(studentId, range),
-        fetchFailedSubmissions(studentId),
-      ]);
-      if (skillRes.status === 'fulfilled') {
-        setData(skillRes.value);
-      } else {
-        setError('Không tải được sơ đồ kỹ năng của học sinh. Vui lòng thử lại sau.');
-      }
-      if (tagRes.status === 'fulfilled') setTagData(tagRes.value);
-      if (failedRes.status === 'fulfilled') setFailedSubmissions(failedRes.value);
-    } catch (err) {
-      console.error(err);
-      setError('Không tải được dữ liệu. Vui lòng thử lại sau.');
-    } finally {
-      setLoading(false);
-    }
-  };
-
   const handleTimeRangeChange = (newRange: TimeRange) => {
-    setTimeRange(newRange);
-    loadData(newRange);
-  };
-
-  const loadAICommentary = async (forceRefresh: boolean, range: TimeRange = timeRange) => {
-    if (forceRefresh) setAiRefreshing(true);
-    else setAiLoading(true);
-    setAiError(null);
-    try {
-      const res = await fetchAICommentary(studentId, range, forceRefresh);
-      setAiData(res);
-    } catch (err) {
-      console.error(err);
-      setAiError('Không tải được nhận xét AI. Vui lòng thử lại sau.');
-    } finally {
-      setAiLoading(false);
-      setAiRefreshing(false);
-    }
+    setParams(previous => { const next = new URLSearchParams(previous); if (newRange === 'all') next.delete('range'); else next.set('range', newRange); return next; }, { preventScrollReset: true });
   };
 
   // Peer navigation within class
@@ -140,128 +96,20 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
     }
   };
 
-  if (loading && !data) {
-    return (
-      <div className="space-y-4 p-3.5 sm:p-5 lg:p-6 max-w-7xl mx-auto">
-        <Skeleton className="h-10 w-full" />
-        <Skeleton className="h-20 w-full" />
-        <Skeleton className="h-16 w-full" />
-        <Skeleton className="h-80 w-full" />
-      </div>
-    );
-  }
-
-  if (!data) {
-    return (
-      <div className="p-3.5 sm:p-5 lg:p-6 max-w-7xl mx-auto">
-        <ErrorPanel
-          title="Không thể tải dữ liệu học sinh"
-          message={error ?? 'Dữ liệu hiện chưa sẵn sàng. Vui lòng thử lại.'}
-          onRetry={loadData}
-        />
-      </div>
-    );
-  }
-
   const summary = tagData?.summary;
 
   return (
     <div className="p-3.5 sm:p-5 lg:p-6 max-w-7xl mx-auto space-y-4">
-      {/* Top Breadcrumb & Peer Switcher Bar */}
-      <div className="bg-card border border-border rounded-lg p-2.5 px-3.5 flex flex-wrap items-center justify-between gap-2.5">
-        <div className="flex items-center gap-2 text-xs min-w-0">
-          <BookOpen className="w-3.5 h-3.5 text-brand-primary shrink-0" />
-          {onBackToClasses && (
-            <button
-              type="button"
-              onClick={onBackToClasses}
-              className="text-text-secondary hover:text-brand-primary hover:underline font-medium transition-colors"
-            >
-              Tất cả lớp học
-            </button>
-          )}
-          {onBackToClasses && (currentClassName || onBackToStudents) && (
-            <span className="text-border">/</span>
-          )}
-          {onBackToStudents ? (
-            <button
-              type="button"
-              onClick={onBackToStudents}
-              className="text-text-secondary hover:text-brand-primary hover:underline font-medium truncate max-w-[140px] sm:max-w-[200px] transition-colors"
-            >
-              {currentClassName || 'Danh sách lớp'}
-            </button>
-          ) : (
-            <span className="text-text-secondary truncate max-w-[140px] sm:max-w-[200px]">
-              {currentClassName}
-            </span>
-          )}
-          <span className="text-border">/</span>
-          <span className="font-semibold text-text-primary truncate max-w-[140px] sm:max-w-[200px]">
-            {data.student_name || `Học sinh #${studentId}`}
-          </span>
+      {classId && classStudents.length > 1 && <nav aria-label="Học sinh trong lớp" className="bg-card border border-border rounded-lg p-3 flex flex-wrap items-center gap-3">
+        <span className="text-sm text-text-secondary">Chuyển học sinh trong lớp</span>
+        <div className="flex w-full sm:w-auto items-center gap-2 sm:ml-auto min-w-0">
+          {prevStudent ? <Link to={studentUrl(prevStudent.user_id, classId, listSearch, rosterSearch, timeRange)} aria-label={`Học sinh trước: ${prevStudent.name}`} className="h-11 min-w-11 px-2 inline-flex justify-center items-center gap-1 text-sm border border-border-control rounded-md"><ChevronLeft className="w-4 h-4" /><span className="hidden sm:inline">Trước</span></Link> : <button disabled aria-label="Đây là học sinh đầu tiên" className="h-11 min-w-11 px-2 inline-flex justify-center items-center gap-1 text-sm border border-border-control rounded-md text-text-secondary opacity-50"><ChevronLeft className="w-4 h-4" /><span className="hidden sm:inline">Trước</span></button>}
+          <select value={studentId} onChange={event => navigate(studentUrl(Number(event.target.value), classId, listSearch, rosterSearch, timeRange))} aria-label="Chuyển nhanh học sinh trong lớp" className="h-11 min-w-0 flex-1 sm:max-w-60 rounded-md border border-border-control bg-card px-2 text-sm">
+            {classStudents.map((student, index) => <option key={student.user_id} value={student.user_id}>{index + 1}. {student.name}</option>)}
+          </select>
+          {nextStudent ? <Link to={studentUrl(nextStudent.user_id, classId, listSearch, rosterSearch, timeRange)} aria-label={`Học sinh kế tiếp: ${nextStudent.name}`} className="h-11 min-w-11 px-2 inline-flex justify-center items-center gap-1 text-sm border border-border-control rounded-md"><span className="hidden sm:inline">Sau</span><ChevronRight className="w-4 h-4" /></Link> : <button disabled aria-label="Đây là học sinh cuối cùng" className="h-11 min-w-11 px-2 inline-flex justify-center items-center gap-1 text-sm border border-border-control rounded-md text-text-secondary opacity-50"><span className="hidden sm:inline">Sau</span><ChevronRight className="w-4 h-4" /></button>}
         </div>
-
-        <div className="flex items-center gap-1.5 ml-auto">
-          {onBackToStudents && (
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={onBackToStudents}
-              className="h-7 px-2 text-xs gap-1 text-text-secondary hover:text-text-primary"
-              title="Quay lại danh sách học sinh của lớp"
-            >
-              <ArrowLeft className="w-3.5 h-3.5" />
-              <span className="hidden sm:inline">Danh sách HS</span>
-            </Button>
-          )}
-
-          {classStudents.length > 1 && (
-            <>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => prevStudent && onSelectStudent?.(prevStudent.user_id, prevStudent.name)}
-                disabled={!prevStudent}
-                className="h-7 px-2 text-xs gap-1"
-                title={prevStudent ? `Học sinh trước: ${prevStudent.name}` : 'Đây là học sinh đầu tiên'}
-              >
-                <ChevronLeft className="w-3.5 h-3.5" />
-                <span className="hidden sm:inline">Trước</span>
-              </Button>
-
-              <select
-                value={studentId}
-                onChange={(e) => {
-                  const targetId = Number(e.target.value);
-                  const st = classStudents.find((s) => s.user_id === targetId);
-                  if (st) onSelectStudent?.(st.user_id, st.name);
-                }}
-                aria-label="Chuyển nhanh học sinh trong lớp"
-                className="h-7 rounded-sm border border-border bg-card px-2 text-xs text-text-primary cursor-pointer max-w-[130px] sm:max-w-[180px] truncate focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-brand-primary"
-              >
-                {classStudents.map((s, idx) => (
-                  <option key={s.user_id} value={s.user_id}>
-                    {idx + 1}. {s.name}
-                  </option>
-                ))}
-              </select>
-
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => nextStudent && onSelectStudent?.(nextStudent.user_id, nextStudent.name)}
-                disabled={!nextStudent}
-                className="h-7 px-2 text-xs gap-1"
-                title={nextStudent ? `Học sinh kế tiếp: ${nextStudent.name}` : 'Đây là học sinh cuối cùng'}
-              >
-                <span className="hidden sm:inline">Sau</span>
-                <ChevronRight className="w-3.5 h-3.5" />
-              </Button>
-            </>
-          )}
-        </div>
-      </div>
+      </nav>}
 
       {/* Student Overview Header Card */}
       <Card className="bg-card border-border">
@@ -269,10 +117,10 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
           <div className="space-y-1">
             <div className="flex items-center gap-2">
               <h1 className="text-xl font-bold text-text-primary tracking-tight">
-                {data.student_name}
+                {studentName}
               </h1>
               <Badge variant="outline" className="text-[10px] font-mono">
-                #{data.user_id}
+                #{studentId}
               </Badge>
             </div>
           </div>
@@ -281,13 +129,14 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
             <TimeRangeFilter
               value={timeRange}
               onChange={handleTimeRangeChange}
-              disabled={loading}
             />
           </div>
         </CardContent>
       </Card>
 
       {/* Summary Telemetry Bar: Chỉ 2 cột: Bài đã giải & Lượt nộp theo mốc thời gian */}
+      {tags.isPending && <SectionLoading label="Đang tải thống kê bài làm..." />}
+      {tags.isError && <ErrorPanel title="Không tải được phân tích chuyên đề" message="Hãy thử tải lại phần dữ liệu này." onRetry={() => { void tags.refetch({ cancelRefetch: false }); }} />}
       {summary && (
         <div className="bg-card border border-border rounded-lg p-3.5 sm:p-4 grid grid-cols-2 divide-x divide-border/60">
           <div className="px-3 sm:px-6 first:pl-2 sm:first:pl-4 flex flex-col justify-center">
@@ -331,37 +180,40 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
       )}
 
       {/* Bloom Radar: 1 hàng độc lập đầy chiều */}
-      <div id="section-overview">
+      {skill.isPending && <SectionLoading label="Đang tải năng lực và cây kỹ năng..." />}
+      {skill.isError && <ErrorPanel title="Không tải được sơ đồ kỹ năng" message="Hãy thử tải lại phần dữ liệu này." onRetry={() => { void skill.refetch({ cancelRefetch: false }); }} />}
+      {data && <><div id="section-overview">
         <BloomRadar data={data.bloom_radar} />
       </div>
 
       {/* Cây kỹ năng */}
       <div id="section-skill-tree">
         <SkillTree nodes={data.skill_tree_nodes} />
-      </div>
+      </div></>}
 
       {/* Failed Submissions (Code Doctor Selection) */}
       <div id="section-failed-submissions">
+        {failed.isError ? <ErrorPanel title="Không tải được bài nộp lỗi" message="Hãy thử tải lại phần dữ liệu này." onRetry={() => { void failed.refetch({ cancelRefetch: false }); }} /> :
         <FailedSubmissionsList
-          submissions={failedSubmissions}
-          loading={loading}
+          submissions={failed.data ?? []}
+          loading={failed.isPending}
           onDiagnose={handleDiagnose}
           diagnosingId={diagnosingId}
-        />
+        />}
       </div>
 
       {/* Tag Completion Grid */}
-      <div id="section-tag-analytics">
-        <TagCompletionGrid tags={tagData?.tags ?? []} />
-      </div>
+      {tagData && <div id="section-tag-analytics">
+        <TagCompletionGrid tags={tagData.tags} />
+      </div>}
 
       {/* AI Advisor Commentary Card */}
       <AIAdvisorCard
-        data={aiData}
-        loading={aiLoading}
-        refreshing={aiRefreshing}
-        error={aiError}
-        onRefresh={() => loadAICommentary(true)}
+        data={ai.data ?? null}
+        loading={ai.isPending}
+        refreshing={refreshAI.isPending || (ai.isFetching && !ai.isPending)}
+        error={ai.isError || (refreshAI.isError && refreshAI.variables === timeRange) ? 'Không tải được nhận xét AI. Hãy thử lại.' : null}
+        onRefresh={() => { if (ai.isError) void ai.refetch({ cancelRefetch: false }); else refreshAI.mutate(timeRange); }}
       />
 
       {/* Code Doctor Modal */}
@@ -374,3 +226,10 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
     </div>
   );
 };
+
+function SectionLoading({ label }: { label: string }) {
+  return <div className="space-y-3 rounded-lg border border-border bg-card p-4" aria-busy="true">
+    <p role="status" className="text-sm text-text-secondary">{label}</p>
+    <Skeleton className="h-24 w-full" />
+  </div>;
+}

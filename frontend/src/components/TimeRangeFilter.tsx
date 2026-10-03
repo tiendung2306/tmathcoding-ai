@@ -24,12 +24,12 @@ export const TimeRangeFilter: React.FC<TimeRangeFilterProps> = ({
   className = '',
 }) => {
   return (
-    <div className={`inline-flex items-center gap-1.5 p-1 bg-card-subtle/80 border border-border/80 rounded-lg ${className}`}>
-      <div className="flex items-center gap-1 pl-1.5 pr-1 text-text-tertiary">
+    <div className={`inline-flex flex-wrap max-w-full items-center gap-1.5 p-1 bg-card-subtle/80 border border-border/80 rounded-lg ${className}`}>
+      <div className="hidden sm:flex items-center gap-1 pl-1.5 pr-1 text-text-tertiary">
         <Calendar className="w-3.5 h-3.5" />
         <span className="text-[11px] font-medium hidden sm:inline">Mốc:</span>
       </div>
-      <div className="flex items-center gap-1" role="group" aria-label="Chọn mốc thời gian đánh giá">
+      <div className="flex flex-wrap items-center gap-1" role="group" aria-label="Chọn mốc thời gian đánh giá">
         {OPTIONS.map((opt) => {
           const isActive = value === opt.key;
           return (
@@ -40,7 +40,7 @@ export const TimeRangeFilter: React.FC<TimeRangeFilterProps> = ({
               onClick={() => onChange(opt.key)}
               title={opt.tooltip}
               aria-pressed={isActive}
-              className={`px-2.5 py-1 text-xs font-medium rounded-md transition-all duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary ${
+              className={`min-h-11 sm:min-h-8 px-2.5 py-1 text-xs font-medium rounded-md transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary ${
                 isActive
                   ? 'bg-card text-brand-primary shadow-xs font-semibold border border-border/80'
                   : 'text-text-secondary hover:text-text-primary hover:bg-card/50 border border-transparent'

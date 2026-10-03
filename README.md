@@ -10,6 +10,50 @@ khi kết nối DB gốc bên ngoài, bỏ profile và cấu hình `SOURCE_DB_*`
 
 ---
 
+## Điều hướng frontend
+
+Frontend dùng React 18, TypeScript, Vite và React Router 6 với browser history.
+Mỗi màn hình chính có địa chỉ riêng; Back/Forward, tải lại, bookmark và mở link
+trong tab mới hoạt động theo URL.
+
+| Địa chỉ | Màn hình |
+| --- | --- |
+| `/` | Chọn khu vực làm việc |
+| `/student/classes` | Danh sách lớp |
+| `/student/classes/:classId/students` | Học sinh trong lớp |
+| `/student/students/:studentId` | Thống kê học sinh |
+| `/teacher/classes` | Danh sách lớp giáo viên |
+| `/teacher/classes/:classId/sessions` | Phiên học của lớp |
+| `/teacher/sessions/:sessionId` | Theo dõi hoặc xem lại phiên học |
+| `/admin` | Quản trị dashboard |
+
+Tìm kiếm, bộ lọc, sắp xếp, phân trang và khoảng thời gian dùng query string.
+Link từ lớp sang học sinh giữ ngữ cảnh danh sách để breadcrumb đưa người dùng
+về đúng bộ lọc trước đó. Link tìm học sinh toàn cục mở hồ sơ độc lập.
+
+Khi deploy bản build, cấu hình web server trả `index.html` cho các đường dẫn
+frontend chưa khớp file. Các đường dẫn `/api/` phải proxy đến backend; tài nguyên
+tĩnh phải được phục vụ như file, không trả HTML thay cho file bị thiếu. Vite dev
+server hiện hỗ trợ tải lại các địa chỉ frontend trực tiếp.
+
+Kiểm tra frontend trong thư mục `frontend`: `npm ci`, `npm test`, `npm run build`.
+Các route tiếp tục dùng quy ước truy cập backend hiện tại của dự án; lựa chọn
+khu vực ở trang đầu không thay thế xác thực tài khoản.
+
+TanStack Query quản lý các read của dashboard và ngữ cảnh lớp: cache 30 giây,
+nhận xét AI 5 phút, giữ cache không sử dụng tối đa 5 phút. Request cùng query key
+được dùng chung, kể cả lúc StrictMode remount; kết quả đến muộn chỉ cập nhật cache
+của đúng học sinh/khoảng thời gian. Shared read được cho phép hoàn tất thay vì hủy
+ngay khi một consumer rời trang; request thống kê có timeout 30 giây, AI 250 giây.
+Retry thực hiện qua từng phần UI, không tự gửi lại request lỗi hoặc sinh AI.
+Khi tích hợp đăng nhập/đăng xuất, xóa query cache khi đổi tài khoản và thêm phạm vi
+tài khoản vào query key. Cache frontend không thay thế kiểm tra quyền backend.
+
+Vite polling trên Docker/Windows dùng chu kỳ 1 giây và bỏ qua cache npm, build,
+tests. Tránh đặt cache công cụ mới trong cây thư mục được watcher theo dõi.
+
+[Báo cáo kiểm tra điều hướng và UI](anti-slop/audit-001-2026-10-04.md).
+
 ## 🏗️ CẤU TRÚC DỰ ÁN (PROJECT STRUCTURE)
 
 ```text

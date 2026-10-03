@@ -24,14 +24,14 @@ const API_BASE_URL = '/api/v1';
 
 export const fetchSkillTree = async (userId: number, timeRange: TimeRange = 'all'): Promise<SkillTreeResponseData> => {
   const res = await axios.get(`${API_BASE_URL}/student/skill-tree`, {
-    params: { user_id: userId, time_range: timeRange }
+    params: { user_id: userId, time_range: timeRange }, timeout: 30_000,
   });
   return res.data;
 };
 
 export const fetchTagAnalytics = async (userId: number, timeRange: TimeRange = 'all'): Promise<TagAnalyticsResponseData> => {
   const res = await axios.get(`${API_BASE_URL}/student/analytics/tags`, {
-    params: { user_id: userId, time_range: timeRange }
+    params: { user_id: userId, time_range: timeRange }, timeout: 30_000,
   });
   return res.data;
 };
@@ -42,7 +42,7 @@ export const fetchAICommentary = async (
   forceRefresh: boolean = false
 ): Promise<AICommentaryResponseData> => {
   const res = await axios.get(`${API_BASE_URL}/student/analytics/ai-commentary`, {
-    params: { user_id: userId, time_range: timeRange, force_refresh: forceRefresh }
+    params: { user_id: userId, time_range: timeRange, force_refresh: forceRefresh }, timeout: 250_000,
   });
   return res.data;
 };
@@ -62,7 +62,7 @@ export const fetchJobStatus = async (jobId: string): Promise<JobStatusResponseDa
 
 export const fetchFailedSubmissions = async (userId: number): Promise<FailedSubmissionItem[]> => {
   const res = await axios.get(`${API_BASE_URL}/student/submissions/failed`, {
-    params: { user_id: userId }
+    params: { user_id: userId }, timeout: 30_000,
   });
   return res.data;
 };
@@ -147,9 +147,9 @@ export const stopVirtualClass = async (sessionId: number) => {
   return res.data;
 };
 
-export const fetchLiveSubmissions = async (sessionId: number, sinceId: number = 0) => {
+export const fetchLiveSubmissions = async (sessionId: number, sinceId: number = 0, signal?: AbortSignal) => {
   const res = await axios.get(`${API_BASE_URL}/virtual-class/sessions/${sessionId}/live-submissions`, {
-    params: { since_id: sinceId }
+    params: { since_id: sinceId }, signal,
   });
   return res.data;
 };

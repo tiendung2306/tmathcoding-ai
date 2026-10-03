@@ -267,11 +267,51 @@ class ClassCatalogTests(unittest.IsolatedAsyncioTestCase):
             live = await client.get(f"/virtual-class/sessions/{session_id}/live-submissions")
             self.assertEqual(live.status_code, 200)
             self.assertEqual(live.json()["submissions"], [])
+            self.assertTrue(live.json()['is_active'])
             for _ in range(2):
                 response = await client.post(f"/virtual-class/sessions/{session_id}/stop")
                 self.assertEqual(response.status_code, 200)
                 self.assertIsNotNone(response.json()["end_time"])
+            live = await client.get(f"/virtual-class/sessions/{session_id}/live-submissions")
+            self.assertFalse(live.json()['is_active'])
         self.assertNotIn(VirtualClassSession.__tablename__, JudgeOrganization.metadata.tables)
+
+    async def test_direct_class_and_session_urls_enforce_class_visibility(self):
+        app = FastAPI()
+        app.include_router(router, prefix="/teacher")
+        app.include_router(virtual_router, prefix="/virtual-class")
+
+        async def source():
+            yield self.db
+
+        async def dashboard():
+            yield self.config_db
+
+        app.dependency_overrides[get_db] = source
+        app.dependency_overrides[get_config_db] = dashboard
+        session = self.config_session.query(VirtualClassSession).filter_by(org_id=11).first()
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
+            response = await client.get('/teacher/classes/1', params={'teacher_id': 3})
+            self.assertEqual(response.status_code, 200)
+            self.assertEqual(response.json(), {'id': 1, 'name': 'Lớp 001'})
+            self.assertEqual((await client.get('/teacher/classes/2', params={'teacher_id': 3})).status_code, 404)
+            self.assertEqual((await client.get('/teacher/classes/1', params={'teacher_id': 999})).status_code, 403)
+            self.assertEqual((await client.get('/teacher/classes/999')).status_code, 404)
+            response = await client.get('/teacher/students/3')
+            self.assertEqual(response.status_code, 200)
+            self.assertEqual(response.json()['id'], 3)
+            self.assertTrue(response.json()['name'])
+            self.assertEqual((await client.get('/teacher/students/999')).status_code, 404)
+            response = await client.get('/teacher/students/search', params={'q': 'khong-khop-ten'})
+            self.assertEqual(response.status_code, 200)
+            self.assertEqual(response.json(), [])
+            response = await client.get(f'/virtual-class/sessions/{session.id}')
+            self.assertEqual(response.status_code, 200)
+            self.assertEqual(response.json()['class_name'], 'Lớp 011')
+            self.assertEqual(response.json()['org_id'], 11)
+            self.assertIsNotNone(response.json()['end_time'])
+            self.assertEqual((await client.get(f'/virtual-class/sessions/{session.id}', params={'teacher_id': 3})).status_code, 404)
+            self.assertEqual((await client.get('/virtual-class/sessions/999')).status_code, 404)
 
     async def test_stars_pin_before_paging_in_timestamp_order_for_every_sort(self):
         first = datetime(2026, 1, 1)

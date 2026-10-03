@@ -10,11 +10,33 @@ from app.models.dmoj import JudgeSubmission, JudgeProfile, AuthUser, JudgeProble
 from app.models.virtual_class import VirtualClassSession
 from app.schemas.virtual_class import (
     LiveSubmissionItem, VirtualClassStatus, LiveSubmissionsResponse,
-    VirtualClassSessionItem, VirtualClassSessionListResponse
+    VirtualClassSessionItem, VirtualClassSessionListResponse, VirtualClassSessionDetail
 )
+from app.services.class_access import get_visible_class
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
+
+
+@router.get("/sessions/{session_id}", response_model=VirtualClassSessionDetail)
+async def get_virtual_class_session(
+    session_id: int,
+    teacher_id: int = Query(2, ge=1),
+    db: AsyncSession = Depends(get_dashboard_db),
+    source_db: AsyncSession = Depends(get_db),
+):
+    session = (await db.execute(select(VirtualClassSession).where(
+        VirtualClassSession.id == session_id
+    ))).scalar_one_or_none()
+    if session is None:
+        raise HTTPException(status_code=404, detail="Không tìm thấy phiên học.")
+    organization = await get_visible_class(source_db, session.org_id, teacher_id)
+    return VirtualClassSessionDetail(
+        id=session.id, org_id=session.org_id,
+        name=session.name or f"Phiên học {session.start_time.strftime('%d/%m/%Y %H:%M')}",
+        start_time=session.start_time, end_time=session.end_time,
+        class_name=organization.name or f"Lớp #{organization.id}",
+    )
 
 @router.get("/{org_id}/sessions", response_model=VirtualClassSessionListResponse)
 async def get_virtual_class_sessions(
@@ -187,4 +209,4 @@ async def get_live_submissions(
         if sub.id > max_id:
             max_id = sub.id
 
-    return LiveSubmissionsResponse(submissions=submissions, last_id=max_id)
+    return LiveSubmissionsResponse(submissions=submissions, last_id=max_id, is_active=session.end_time is None)

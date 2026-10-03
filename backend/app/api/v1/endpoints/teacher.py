@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, or_
 from app.core.database import get_db
@@ -23,8 +23,19 @@ from app.services.heatmap_service import heatmap_service
 from app.services.algorithm_competency_service import algorithm_competency_service
 from app.services.class_catalog_service import get_class_page
 from app.services.class_preferences_service import set_class_star
+from app.services.class_access import get_visible_class
 
 router = APIRouter()
+
+
+@router.get("/classes/{org_id}")
+async def get_class_context(
+    org_id: int,
+    teacher_id: int = Query(2, ge=1),
+    db: AsyncSession = Depends(get_db),
+):
+    organization = await get_visible_class(db, org_id, teacher_id)
+    return {"id": organization.id, "name": organization.name}
 
 # ==============================================================================
 # LƯU Ý TÍCH HỢP (INTEGRATION NOTE):
@@ -97,6 +108,16 @@ async def search_students(
         )
         for p, username in res.all()
     ]
+
+@router.get("/students/{student_id}")
+async def get_student_context(student_id: int, db: AsyncSession = Depends(get_db)):
+    profile = (await db.execute(select(JudgeProfile).where(
+        JudgeProfile.id == student_id
+    ))).scalar_one_or_none()
+    if profile is None:
+        raise HTTPException(status_code=404, detail="Không tìm thấy học sinh.")
+    return {"id": profile.id, "name": profile.name or f"Học sinh #{profile.id}"}
+
 
 @router.get("/class/{org_id}/heatmap", response_model=ClassHeatmapResponse)
 async def get_class_heatmap(

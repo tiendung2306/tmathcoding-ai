@@ -1,10 +1,7 @@
-import React from 'react';
+import React, { useEffect } from 'react';
+import { Link } from 'react-router-dom';
 
 export type Role = 'student' | 'teacher' | 'admin';
-
-interface RoleSelectProps {
-  onSelectRole: (role: Role) => void;
-}
 
 const ROLE_OPTIONS: { id: Role; label: string }[] = [
   { id: 'student', label: 'Học sinh' },
@@ -12,7 +9,8 @@ const ROLE_OPTIONS: { id: Role; label: string }[] = [
   { id: 'admin', label: 'Quản trị viên' },
 ];
 
-export const RoleSelect: React.FC<RoleSelectProps> = ({ onSelectRole }) => {
+export const RoleSelect: React.FC = () => {
+  useEffect(() => { document.title = 'Chọn khu vực làm việc · tmath'; }, []);
   return (
     <div className="min-h-screen bg-app flex items-center justify-center px-4">
       <div className="w-full max-w-md">
@@ -25,18 +23,18 @@ export const RoleSelect: React.FC<RoleSelectProps> = ({ onSelectRole }) => {
           />
         </div>
 
-        <div className="grid grid-cols-3 gap-2.5" role="group" aria-label="Chọn vai trò">
+        <h1 className="text-xl font-semibold text-center mb-5">Chọn khu vực làm việc</h1>
+        <nav className="grid grid-cols-1 sm:grid-cols-3 gap-2.5" aria-label="Khu vực làm việc">
           {ROLE_OPTIONS.map((option) => (
-            <button
+            <Link
               key={option.id}
-              type="button"
-              onClick={() => onSelectRole(option.id)}
-              className="h-10 px-2 bg-card border border-border rounded-md text-sm font-medium text-text-primary transition-colors hover:border-border-strong hover:bg-card-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary"
+              to={option.id === 'admin' ? '/admin' : `/${option.id}/classes`}
+              className="min-h-11 flex items-center justify-center px-2 bg-card border border-border-control rounded-md text-sm font-medium text-text-primary transition-colors hover:border-text-secondary hover:bg-card-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary"
             >
               {option.label}
-            </button>
+            </Link>
           ))}
-        </div>
+        </nav>
       </div>
     </div>
   );

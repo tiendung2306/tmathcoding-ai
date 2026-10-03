@@ -27,6 +27,10 @@ class VirtualClassSessionListResponse(BaseModel):
     sessions: List[VirtualClassSessionItem]
     active_session: Optional[VirtualClassSessionItem] = None
 
+
+class VirtualClassSessionDetail(VirtualClassSessionItem):
+    class_name: str
+
 class VirtualClassStatus(BaseModel):
     org_id: int
     is_active: bool
@@ -36,3 +40,4 @@ class VirtualClassStatus(BaseModel):
 class LiveSubmissionsResponse(BaseModel):
     submissions: List[LiveSubmissionItem]
     last_id: int
+    is_active: bool

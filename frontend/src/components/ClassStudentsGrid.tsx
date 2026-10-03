@@ -1,4 +1,5 @@
-import React, { useState, useMemo } from 'react';
+import React, { useMemo } from 'react';
+import { Link, useSearchParams } from 'react-router-dom';
 import { ClassStudentItemData } from '../types';
 import { Card, CardContent } from './ui/card';
 import { Badge } from './ui/badge';
@@ -8,7 +9,6 @@ import { Skeleton } from './ui/skeleton';
 import {
   Users,
   Search,
-  ArrowLeft,
   ArrowUpDown,
   AlertOctagon,
   AlertCircle,
@@ -25,8 +25,7 @@ interface ClassStudentsGridProps {
   classId: number;
   students: ClassStudentItemData[];
   loading: boolean;
-  onSelectStudent: (userId: number, studentName: string) => void;
-  onBackToClasses: () => void;
+  studentHref: (userId: number) => string;
 }
 
 type AlertFilter = 'ALL' | 'HAS_ALERT' | 'STUCK' | 'GAP' | 'INACTIVE';
@@ -37,13 +36,21 @@ export const ClassStudentsGrid: React.FC<ClassStudentsGridProps> = ({
   classId,
   students,
   loading,
-  onSelectStudent,
-  onBackToClasses,
+  studentHref,
 }) => {
-  const [searchQuery, setSearchQuery] = useState<string>('');
-  const [alertFilter, setAlertFilter] = useState<AlertFilter>('ALL');
-  const [sortField, setSortField] = useState<SortField>('points');
-  const [sortAsc, setSortAsc] = useState<boolean>(false);
+  const [params, setParams] = useSearchParams();
+  const searchQuery = params.get('q') || '';
+  const alertValue = params.get('alert') as AlertFilter;
+  const alertFilter: AlertFilter = ['ALL', 'HAS_ALERT', 'STUCK', 'GAP', 'INACTIVE'].includes(alertValue) ? alertValue : 'ALL';
+  const sortValue = params.get('sort') as SortField;
+  const sortField: SortField = ['points', 'problems', 'name'].includes(sortValue) ? sortValue : 'points';
+  const sortAsc = params.has('order') ? params.get('order') === 'asc' : sortField === 'name';
+  const updateFilter = (key: string, value: string, replace = false) => {
+    setParams(previous => { const next = new URLSearchParams(previous); if (value) next.set(key, value); else next.delete(key); return next; }, { replace, preventScrollReset: true });
+  };
+  const setSearchQuery = (value: string) => updateFilter('q', value, true);
+  const setAlertFilter = (value: AlertFilter) => updateFilter('alert', value === 'ALL' ? '' : value);
+  const setSortField = (value: SortField) => updateFilter('sort', value === 'points' ? '' : value);
 
   const getInitials = (name: string) => {
     const parts = name.trim().split(/\s+/);
@@ -120,13 +127,13 @@ export const ClassStudentsGrid: React.FC<ClassStudentsGridProps> = ({
     list.sort((a, b) => {
       let diff = 0;
       if (sortField === 'points') {
-        diff = b.points - a.points;
+        diff = a.points - b.points;
       } else if (sortField === 'problems') {
-        diff = b.problem_count - a.problem_count;
+        diff = a.problem_count - b.problem_count;
       } else if (sortField === 'name') {
         diff = a.name.localeCompare(b.name, 'vi', { numeric: true });
       }
-      return sortAsc ? -diff : diff;
+      return sortAsc ? diff : -diff;
     });
 
     return list;
@@ -152,22 +159,7 @@ export const ClassStudentsGrid: React.FC<ClassStudentsGridProps> = ({
 
   return (
     <div className="p-3.5 sm:p-5 lg:p-6 max-w-7xl mx-auto space-y-4">
-      {/* Top Breadcrumb & Navigation */}
-      <div className="flex items-center justify-between gap-2">
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={onBackToClasses}
-          className="h-8 px-2.5 text-xs gap-1.5 text-text-secondary hover:text-text-primary"
-        >
-          <ArrowLeft className="w-3.5 h-3.5" />
-          <span>Quay lại danh sách lớp</span>
-        </Button>
-
-        <div className="text-xs text-text-tertiary">
-          <span>Lớp #{classId}</span>
-        </div>
-      </div>
+      <p className="text-xs text-text-secondary">Lớp #{classId}</p>
 
       {/* Class Title Header */}
       <Card className="bg-card border-border">
@@ -194,7 +186,7 @@ export const ClassStudentsGrid: React.FC<ClassStudentsGridProps> = ({
                 placeholder="Tìm học sinh theo tên, ID..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className="pl-8 pr-3 h-8 text-xs bg-card"
+                className="pl-8 pr-3 h-11 sm:h-8 text-xs bg-card"
               />
               <Search className="w-3.5 h-3.5 text-text-tertiary absolute left-2.5 top-2.5 pointer-events-none" />
             </div>
@@ -207,18 +199,19 @@ export const ClassStudentsGrid: React.FC<ClassStudentsGridProps> = ({
                 id="student-sort-select"
                 value={sortField}
                 onChange={(e) => setSortField(e.target.value as SortField)}
-                className="bg-transparent text-xs text-text-primary rounded-md cursor-pointer pr-2 py-0.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary"
+                className="h-11 sm:h-8 bg-transparent text-xs text-text-primary rounded-md cursor-pointer pr-2 py-0.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary"
               >
                 <option value="points" className="bg-card text-text-primary">
-                  Điểm số (Cao → Thấp)
+                  Điểm số
                 </option>
                 <option value="problems" className="bg-card text-text-primary">
-                  Số bài nộp (Nhiều → Ít)
+                  Số bài nộp
                 </option>
                 <option value="name" className="bg-card text-text-primary">
-                  Tên học sinh (A → Z)
+                  Tên học sinh
                 </option>
               </select>
+              <button type="button" onClick={() => updateFilter('order', sortAsc ? 'desc' : 'asc')} aria-label={`Đổi sang sắp xếp ${sortAsc ? 'giảm' : 'tăng'} dần`} className="min-h-11 sm:min-h-8 px-2 text-xs underline">{sortAsc ? 'Tăng dần' : 'Giảm dần'}</button>
             </div>
           </div>
         </CardContent>
@@ -229,7 +222,7 @@ export const ClassStudentsGrid: React.FC<ClassStudentsGridProps> = ({
         <button
           type="button"
           onClick={() => setAlertFilter('ALL')}
-          className={`px-3 py-1 rounded-md text-xs font-medium border transition-colors ${
+          className={`min-h-11 sm:min-h-8 px-3 py-1 rounded-md text-xs font-medium border transition-colors ${
             alertFilter === 'ALL'
               ? 'bg-brand-primary/10 text-brand-primary border-brand-primary/30'
               : 'bg-card text-text-secondary border-border hover:text-text-primary'
@@ -242,7 +235,7 @@ export const ClassStudentsGrid: React.FC<ClassStudentsGridProps> = ({
           <button
             type="button"
             onClick={() => setAlertFilter('HAS_ALERT')}
-            className={`px-3 py-1 rounded-md text-xs font-medium border transition-colors ${
+            className={`min-h-11 sm:min-h-8 px-3 py-1 rounded-md text-xs font-medium border transition-colors ${
               alertFilter === 'HAS_ALERT'
                 ? 'bg-amber-500/10 text-amber-600 border-amber-500/30'
                 : 'bg-card text-text-secondary border-border hover:text-text-primary'
@@ -256,7 +249,7 @@ export const ClassStudentsGrid: React.FC<ClassStudentsGridProps> = ({
           <button
             type="button"
             onClick={() => setAlertFilter('STUCK')}
-            className={`px-3 py-1 rounded-md text-xs font-medium border transition-colors ${
+            className={`min-h-11 sm:min-h-8 px-3 py-1 rounded-md text-xs font-medium border transition-colors ${
               alertFilter === 'STUCK'
                 ? 'bg-amber-500/10 text-amber-600 border-amber-500/30'
                 : 'bg-card text-text-secondary border-border hover:text-text-primary'
@@ -270,7 +263,7 @@ export const ClassStudentsGrid: React.FC<ClassStudentsGridProps> = ({
           <button
             type="button"
             onClick={() => setAlertFilter('GAP')}
-            className={`px-3 py-1 rounded-md text-xs font-medium border transition-colors ${
+            className={`min-h-11 sm:min-h-8 px-3 py-1 rounded-md text-xs font-medium border transition-colors ${
               alertFilter === 'GAP'
                 ? 'bg-purple-500/10 text-purple-600 border-purple-500/30'
                 : 'bg-card text-text-secondary border-border hover:text-text-primary'
@@ -284,7 +277,7 @@ export const ClassStudentsGrid: React.FC<ClassStudentsGridProps> = ({
           <button
             type="button"
             onClick={() => setAlertFilter('INACTIVE')}
-            className={`px-3 py-1 rounded-md text-xs font-medium border transition-colors ${
+            className={`min-h-11 sm:min-h-8 px-3 py-1 rounded-md text-xs font-medium border transition-colors ${
               alertFilter === 'INACTIVE'
                 ? 'bg-slate-500/10 text-slate-600 border-slate-500/30'
                 : 'bg-card text-text-secondary border-border hover:text-text-primary'
@@ -306,26 +299,18 @@ export const ClassStudentsGrid: React.FC<ClassStudentsGridProps> = ({
         <Card className="bg-card border-border">
           <CardContent className="p-8 text-center space-y-2">
             <Users className="w-8 h-8 text-text-tertiary mx-auto opacity-50" />
-            <p className="text-sm font-medium text-text-primary">Không tìm thấy học sinh nào</p>
+            <p className="text-sm font-medium text-text-primary">{students.length === 0 ? 'Lớp này chưa có học sinh' : 'Không có học sinh khớp bộ lọc'}</p>
             <p className="text-xs text-text-secondary">
-              Vui lòng thử lại với từ khóa hoặc bộ lọc khác.
+              {students.length === 0 ? 'Danh sách sẽ xuất hiện khi có học sinh được thêm vào lớp.' : 'Hãy thử từ khóa hoặc bộ lọc khác.'}
             </p>
           </CardContent>
         </Card>
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3.5">
           {filteredStudents.map((st) => (
-            <div
+            <Link
               key={st.user_id}
-              role="button"
-              tabIndex={0}
-              onClick={() => onSelectStudent(st.user_id, st.name)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' || e.key === ' ') {
-                  e.preventDefault();
-                  onSelectStudent(st.user_id, st.name);
-                }
-              }}
+              to={studentHref(st.user_id)}
               className="bg-card border border-border hover:border-brand-primary/60 hover:shadow-xs p-4 rounded-lg cursor-pointer transition-all duration-150 flex flex-col justify-between group focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary"
             >
               <div className="space-y-3">
@@ -374,7 +359,7 @@ export const ClassStudentsGrid: React.FC<ClassStudentsGridProps> = ({
                 <span>Xem chi tiết số liệu</span>
                 <ChevronRight className="w-3.5 h-3.5 transform group-hover:translate-x-0.5 transition-transform" />
               </div>
-            </div>
+            </Link>
           ))}
         </div>
       )}

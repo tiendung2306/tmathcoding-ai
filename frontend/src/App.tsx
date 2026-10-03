@@ -1,273 +1,67 @@
-import React, { useState, useEffect } from 'react';
-import { RoleSelect, Role } from './components/RoleSelect';
+import React, { useEffect, useRef, useState } from 'react';
+import { Link, Outlet, ScrollRestoration, useLocation, useMatches, useNavigation } from 'react-router-dom';
 import { Header } from './components/layout/Header';
-import { StudentDashboard } from './pages/StudentDashboard';
-import { AdminDashboard } from './pages/AdminDashboard';
-import { ClassTable } from './components/ClassTable';
-import { ClassStudentsGrid } from './components/ClassStudentsGrid';
-import { VirtualClassSessions } from './components/VirtualClassSessions';
-import { VirtualClassLiveRoom } from './pages/VirtualClassLiveRoom';
-import { searchStudents, fetchClassStudents } from './services/api';
-import { ClassListQuery, ClassStudentItemData } from './types';
-import { Badge } from './components/ui/badge';
-import { Card } from './components/ui/card';
-import { X, Search } from 'lucide-react';
+import { searchStudents } from './services/api';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from './components/ui/dialog';
+import { studentUrl } from './lib/navigation';
 
+export interface PageHandle {
+  title: string | ((data: any) => string);
+  crumbs?: (data: any, search: URLSearchParams) => { label: string; to?: string }[];
+}
 export function App() {
-  const [activeTab, setActiveTab] = useState<Role | null>(null);
-  const [studentStep, setStudentStep] = useState<'classes' | 'students' | 'detail'>('classes');
-  const [virtualClassStep, setVirtualClassStep] = useState<'classes' | 'sessions' | 'live'>('classes');
-  
-  const [classListQuery, setClassListQuery] = useState<ClassListQuery>({
-    page: 1, page_size: 24, q: '', sort_by: 'creation_date', sort_order: 'desc', starred_only: false,
-  });
-  const [selectedClass, setSelectedClass] = useState<{ id: number; name: string } | null>(null);
-  const selectedOrgId = selectedClass?.id;
-  const currentClassName = selectedClass?.name;
-  const [classStudents, setClassStudents] = useState<ClassStudentItemData[]>([]);
-  const [studentsLoading, setStudentsLoading] = useState<boolean>(false);
-
-  const [selectedStudentId, setSelectedStudentId] = useState<number>(7);
-  const [selectedStudentName, setSelectedStudentName] = useState<string>('Nguyễn Khắc Tùng Lâm');
-  
-  const [selectedSessionId, setSelectedSessionId] = useState<number | null>(null);
-  const [selectedSessionName, setSelectedSessionName] = useState<string>('');
-  const [selectedSessionIsActive, setSelectedSessionIsActive] = useState<boolean>(true);
-
-  const [searchQuery, setSearchQuery] = useState<string>('');
-  const [searchResults, setSearchResults] = useState<any[]>([]);
-  const [isSearching, setIsSearching] = useState<boolean>(false);
-
-  // Load class students whenever selectedOrgId changes
+  const location = useLocation();
+  const matches = useMatches();
+  const navigation = useNavigation();
+  const mainRef = useRef<HTMLElement>(null);
+  const searchInputRef = useRef<HTMLInputElement>(null);
+  const searchGeneration = useRef(0);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [results, setResults] = useState<{ user_id: number; name: string; problem_count: number; points: number }[]>([]);
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [searching, setSearching] = useState(false);
+  const [searchError, setSearchError] = useState('');
+  const [submittedQuery, setSubmittedQuery] = useState('');
+  const match = [...matches].reverse().find(item => item.handle);
+  const handle = match?.handle as PageHandle | undefined;
+  const title = typeof handle?.title === 'function' ? handle.title(match?.data) : handle?.title || 'tmath';
+  const crumbs = match?.data != null ? handle?.crumbs?.(match.data, new URLSearchParams(location.search)) || [] : [];
+  const previousPath = useRef(location.pathname);
   useEffect(() => {
-    if (selectedOrgId) {
-      loadStudentsOfClass(selectedOrgId);
-    }
-  }, [selectedOrgId]);
-
-  const loadStudentsOfClass = async (orgId: number) => {
-    setStudentsLoading(true);
-    try {
-      const students = await fetchClassStudents(orgId);
-      setClassStudents(students);
-
-      // If current student is not in this new class, select the first student of the class
-      if (students.length > 0) {
-        const studentExists = students.some((s) => s.user_id === selectedStudentId);
-        if (!studentExists) {
-          setSelectedStudentId(students[0].user_id);
-          setSelectedStudentName(students[0].name);
-        }
-      }
-    } catch (err) {
-      console.error('Không tải được danh sách học sinh theo lớp:', err);
-    } finally {
-      setStudentsLoading(false);
-    }
-  };
-
-  // Close search on Escape key
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        setSearchResults([]);
-      }
-    };
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, []);
-
-  const handleSearchSubmit = async () => {
+    document.title = `${title} · tmath`;
+    if (previousPath.current !== location.pathname) { mainRef.current?.focus({ preventScroll: true }); previousPath.current = location.pathname; }
+    searchGeneration.current += 1; setSearchOpen(false);
+  }, [location.pathname, title]);
+  const submitSearch = async () => {
     if (!searchQuery.trim()) return;
-    setIsSearching(true);
-    try {
-      const results = await searchStudents(searchQuery);
-      setSearchResults(results);
-    } catch (err) {
-      console.error(err);
-    } finally {
-      setIsSearching(false);
-    }
+    const generation = ++searchGeneration.current;
+    setSubmittedQuery(searchQuery.trim());
+    setResults([]); setSearchError(''); setSearching(true); setSearchOpen(true);
+    try { const data = await searchStudents(searchQuery.trim()); if (generation === searchGeneration.current) setResults(data); }
+    catch { if (generation === searchGeneration.current) setSearchError('Không tìm được học sinh lúc này. Hãy thử lại.'); }
+    finally { if (generation === searchGeneration.current) setSearching(false); }
   };
-
-  const handleSelectClass = (orgId: number, className?: string) => {
-    setSelectedClass({ id: orgId, name: className || `Lớp #${orgId}` });
-    if (activeTab === 'student') {
-      setStudentStep('students');
-    } else if (activeTab === 'teacher') {
-      setVirtualClassStep('sessions');
-    }
-  };
-
-  const handleSelectStudent = (userId: number, name?: string) => {
-    setSelectedStudentId(userId);
-    if (name) setSelectedStudentName(name);
-    setStudentStep('detail');
-    setActiveTab('student');
-    setSearchResults([]);
-    setSearchQuery('');
-  };
-
-  const handleRoleSelect = (role: Role) => {
-    setActiveTab(role);
-    if (role === 'student') setStudentStep('classes');
-    if (role === 'teacher') setVirtualClassStep('classes');
-  };
-
-  const handleBackToClasses = () => {
-    setStudentStep('classes');
-  };
-
-  const handleBackToStudents = () => {
-    setStudentStep('students');
-  };
-
-  if (!activeTab) {
-    return <RoleSelect onSelectRole={handleRoleSelect} />;
-  }
-
-  return (
-    <div className="min-h-screen bg-app text-text-primary flex flex-col">
-      {/* Top Header */}
-      <Header
-        activeTab={activeTab}
-        onChangeRole={() => setActiveTab(null)}
-        studentId={selectedStudentId}
-        studentName={selectedStudentName}
-        searchQuery={searchQuery}
-        setSearchQuery={setSearchQuery}
-        onSearchSubmit={handleSearchSubmit}
-        studentStep={studentStep}
-        onNavigateStudentStep={(step) => setStudentStep(step)}
-        virtualClassStep={virtualClassStep}
-        onNavigateVirtualClassStep={(step) => setVirtualClassStep(step)}
-      />
-
-        {/* Global Search Results Floating Dialog Overlay */}
-        {searchResults.length > 0 && (
-          <div
-            className="fixed inset-0 z-40 bg-slate-950/50 flex items-start justify-center pt-16 px-4"
-            onClick={() => setSearchResults([])}
-          >
-            <Card
-              className="p-4 w-full max-w-lg shadow-xl z-50 bg-card border-border"
-              onClick={(e) => e.stopPropagation()}
-            >
-              <div className="flex items-center justify-between pb-2 border-b border-border mb-2">
-                <div className="flex items-center gap-2">
-                  <Search className="w-3.5 h-3.5 text-text-secondary" />
-                  <h3 className="text-xs font-semibold text-text-primary">
-                    Kết quả tìm kiếm ({searchResults.length})
-                  </h3>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setSearchResults([])}
-                  className="p-1.5 text-text-secondary hover:text-text-primary rounded-md hover:bg-card-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary"
-                  aria-label="Đóng kết quả"
-                >
-                  <X className="w-3.5 h-3.5" />
-                </button>
-              </div>
-
-              <div className="space-y-1.5 max-h-64 overflow-y-auto pr-1">
-                {searchResults.map((st) => (
-                  <div
-                    key={st.user_id}
-                    role="button"
-                    tabIndex={0}
-                    onClick={() => handleSelectStudent(st.user_id, st.name)}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter' || e.key === ' ') {
-                        e.preventDefault();
-                        handleSelectStudent(st.user_id, st.name);
-                      }
-                    }}
-                    className="p-2.5 bg-card-subtle/50 hover:bg-card-subtle border border-border hover:border-border-strong rounded-md cursor-pointer transition-colors flex items-center justify-between focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary"
-                  >
-                    <div>
-                      <div className="flex items-center gap-1.5">
-                        <span className="text-xs font-medium text-text-primary">{st.name}</span>
-                        <Badge variant="outline" className="text-[10px] font-mono">
-                          #{st.user_id}
-                        </Badge>
-                      </div>
-                      <span className="text-[11px] text-text-secondary">
-                        {st.problem_count} bài nộp
-                      </span>
-                    </div>
-                    <Badge variant="ac" className="text-xs font-mono">
-                      {st.points} pts
-                    </Badge>
-                  </div>
-                ))}
-              </div>
-            </Card>
-          </div>
-        )}
-
-        {/* Page Views */}
-        <main className="flex-1 overflow-y-auto">
-          {activeTab === 'student' ? (
-            studentStep === 'classes' ? (
-              <ClassTable
-                query={classListQuery}
-                onQueryChange={setClassListQuery}
-                onSelectClass={handleSelectClass}
-              />
-            ) : studentStep === 'students' && selectedOrgId !== undefined ? (
-              <ClassStudentsGrid
-                classNameTitle={currentClassName || `Lớp #${selectedOrgId}`}
-                classId={selectedOrgId}
-                students={classStudents}
-                loading={studentsLoading}
-                onSelectStudent={handleSelectStudent}
-                onBackToClasses={handleBackToClasses}
-              />
-            ) : (
-              <StudentDashboard
-                studentId={selectedStudentId}
-                classStudents={classStudents}
-                currentClassName={currentClassName}
-                onSelectStudent={handleSelectStudent}
-                onBackToStudents={handleBackToStudents}
-                onBackToClasses={handleBackToClasses}
-              />
-            )
-          ) : activeTab === 'teacher' ? (
-            virtualClassStep === 'classes' ? (
-              <ClassTable
-                query={classListQuery}
-                onQueryChange={setClassListQuery}
-                onSelectClass={handleSelectClass}
-              />
-            ) : virtualClassStep === 'sessions' ? (
-              <VirtualClassSessions
-                selectedOrgId={selectedOrgId ?? undefined}
-                className={currentClassName}
-                onEnterSession={(sessionId, sessionName, isActive) => {
-                  setSelectedSessionId(sessionId);
-                  setSelectedSessionName(sessionName);
-                  setSelectedSessionIsActive(isActive);
-                  setVirtualClassStep('live');
-                }}
-              />
-            ) : (
-              selectedSessionId && (
-                <VirtualClassLiveRoom
-                  sessionId={selectedSessionId}
-                  sessionName={selectedSessionName}
-                  isActive={selectedSessionIsActive}
-                  onSessionStopped={() => setVirtualClassStep('sessions')}
-                />
-              )
-            )
-          ) : (
-            <AdminDashboard />
-          )}
-        </main>
-    </div>
-  );
-};
-
+  return <div className="min-h-screen bg-app text-text-primary flex flex-col">
+    <a href="#main-content" className="sr-only focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-50 bg-card p-3">Đến nội dung chính</a>
+    <Header searchQuery={searchQuery} setSearchQuery={setSearchQuery} onSearchSubmit={submitSearch} inputRef={searchInputRef} />
+    <main id="main-content" ref={mainRef} tabIndex={-1} className="flex-1 min-w-0 focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand-primary focus-visible:outline-offset-[-2px]">
+      {crumbs.length > 0 && <nav aria-label="Đường dẫn" className="max-w-7xl mx-auto px-3.5 sm:px-5 lg:px-6 pt-4"><ol className="flex flex-wrap items-center gap-x-2 text-sm text-text-secondary">
+        {crumbs.map((crumb, index) => <li key={`${index}-${crumb.label}`} className="flex items-center gap-2 min-w-0">
+          {index > 0 && <span aria-hidden="true" className="text-text-tertiary">/</span>}
+          {crumb.to ? <Link to={crumb.to} className="py-2 hover:underline hover:text-brand-primary break-words">{crumb.label}</Link> : <span aria-current="page" className="py-2 font-medium text-text-primary break-words">{crumb.label}</span>}
+        </li>)}
+      </ol></nav>}
+      {navigation.state !== 'idle' && <div role="status" className="fixed top-0 left-0 right-0 h-1 bg-brand-primary z-50"><span className="sr-only">Đang mở trang...</span></div>}
+      <Outlet />
+    </main>
+    <Dialog open={searchOpen} onOpenChange={open => { setSearchOpen(open); if (!open) searchGeneration.current += 1; }}>
+      <DialogContent onCloseAutoFocus={event => { event.preventDefault(); searchInputRef.current?.focus(); }} className="max-w-lg"><DialogHeader><DialogTitle>Kết quả tìm kiếm</DialogTitle><DialogDescription>Học sinh khớp với “{submittedQuery}”.</DialogDescription></DialogHeader>
+        {searching ? <p role="status">Đang tìm học sinh...</p> : searchError ? <div role="alert"><p>{searchError}</p><button onClick={submitSearch} className="mt-3 underline min-h-11">Thử lại</button></div> : results.length === 0 ? <p role="status">Không tìm thấy học sinh. Hãy thử tên hoặc tên đăng nhập khác.</p> : <ul className="max-h-[60vh] overflow-y-auto space-y-2">{results.map(student => <li key={student.user_id}>
+          <Link to={studentUrl(student.user_id)} onClick={() => setSearchOpen(false)} className="block rounded-md border border-border p-3 hover:bg-card-subtle"><span className="block font-medium">{student.name}</span><span className="text-xs text-text-secondary">#{student.user_id} · {student.problem_count} bài · {student.points} điểm</span></Link>
+        </li>)}</ul>}
+      </DialogContent>
+    </Dialog>
+    <ScrollRestoration />
+  </div>;
+}
 export default App;

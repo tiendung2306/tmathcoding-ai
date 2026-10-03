@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { ArrowDown, ArrowUp, ChevronDown, Search, Star } from 'lucide-react';
 import { ClassListQuery, ClassPageData, ClassSortField, ClassSummaryData } from '../types';
 import { fetchTeacherClasses, setClassStar } from '../services/api';
@@ -10,8 +11,9 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from './ui/t
 
 interface ClassTableProps {
   query: ClassListQuery;
-  onQueryChange: (query: ClassListQuery) => void;
-  onSelectClass: (orgId: number, className: string) => void;
+  onQueryChange: (query: ClassListQuery, options?: { replace?: boolean }) => void;
+  classHref: (orgId: number) => string;
+  initialData?: ClassPageData;
 }
 
 type ClassColumn = { label: string; right?: boolean; width: number } & (
@@ -31,11 +33,11 @@ const COLUMNS: ClassColumn[] = [
 
 const COLUMN_COUNT = COLUMNS.length + 1;
 
-function ClassNameCell({ cls, onSelectClass }: {
+function ClassNameCell({ cls, classHref }: {
   cls: ClassSummaryData;
-  onSelectClass: ClassTableProps['onSelectClass'];
+  classHref: ClassTableProps['classHref'];
 }) {
-  const nameRef = useRef<HTMLButtonElement>(null);
+  const nameRef = useRef<HTMLAnchorElement>(null);
   const [truncated, setTruncated] = useState(false);
 
   useEffect(() => {
@@ -51,10 +53,10 @@ function ClassNameCell({ cls, onSelectClass }: {
   return (
     <Tooltip open={truncated ? undefined : false}>
       <TooltipTrigger asChild>
-        <button
-          ref={nameRef} type="button" onClick={() => onSelectClass(cls.id, cls.name)}
+        <Link
+          ref={nameRef} to={classHref(cls.id)}
           className="block w-full truncate py-3 text-left font-medium text-text-primary hover:text-brand-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary rounded-sm"
-        >{cls.name}</button>
+        >{cls.name}</Link>
       </TooltipTrigger>
       <TooltipContent side="top" align="start" className="max-w-[min(24rem,calc(100vw-2rem))] whitespace-normal break-words text-xs leading-relaxed">
         {cls.name}
@@ -77,17 +79,20 @@ function formatDate(value: string | null, includeTime = false): string {
   return (includeTime ? timeFormatter : dateFormatter).format(date);
 }
 
-export const ClassTable: React.FC<ClassTableProps> = ({ query, onQueryChange, onSelectClass }) => {
+export const ClassTable: React.FC<ClassTableProps> = ({ query, onQueryChange, classHref, initialData }) => {
   const [searchInput, setSearchInput] = useState(query.q);
-  const [data, setData] = useState<ClassPageData | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [data, setData] = useState<ClassPageData | null>(initialData || null);
+  const [loading, setLoading] = useState(!initialData);
   const [error, setError] = useState<string | null>(null);
   const [retry, setRetry] = useState(0);
+  const consumedRetry = useRef(0);
   const [savingStar, setSavingStar] = useState<number | null>(null);
   const [starError, setStarError] = useState<string | null>(null);
   const latestQuery = useRef(query);
   const mounted = useRef(true);
   latestQuery.current = query;
+
+  useEffect(() => { setSearchInput(query.q); }, [query.q]);
 
   useEffect(() => {
     mounted.current = true;
@@ -102,6 +107,12 @@ export const ClassTable: React.FC<ClassTableProps> = ({ query, onQueryChange, on
   }, [searchInput, query, onQueryChange]);
 
   useEffect(() => {
+    if (initialData && retry === consumedRetry.current) {
+      setData(initialData); setLoading(false);
+      if (initialData.page !== query.page) onQueryChange({ ...query, page: initialData.page }, { replace: true });
+      return;
+    }
+    consumedRetry.current = retry;
     const controller = new AbortController();
     let active = true;
     setLoading(true);
@@ -110,7 +121,7 @@ export const ClassTable: React.FC<ClassTableProps> = ({ query, onQueryChange, on
       .then((response) => {
         if (!active) return;
         setData(response);
-        if (response.page !== query.page) onQueryChange({ ...query, page: response.page });
+        if (response.page !== query.page) onQueryChange({ ...query, page: response.page }, { replace: true });
       })
       .catch(() => {
         if (!active) return;
@@ -122,7 +133,7 @@ export const ClassTable: React.FC<ClassTableProps> = ({ query, onQueryChange, on
       active = false;
       controller.abort();
     };
-  }, [query, retry, onQueryChange]);
+  }, [query, retry, onQueryChange, initialData]);
 
   const nextSortOrder = (field: ClassSortField) => query.sort_by === field
       ? (query.sort_order === 'asc' ? 'desc' : 'asc')
@@ -137,7 +148,10 @@ export const ClassTable: React.FC<ClassTableProps> = ({ query, onQueryChange, on
     setStarError(null);
     try {
       await setClassStar(cls.id, !cls.starred_at);
-      if (mounted.current) onQueryChange({ ...latestQuery.current, page: 1 });
+      if (mounted.current) {
+        setRetry(value => value + 1);
+        if (latestQuery.current.page !== 1) onQueryChange({ ...latestQuery.current, page: 1 });
+      }
     } catch {
       if (mounted.current) setStarError('Không cập nhật được lớp đã lưu. Bấm ngôi sao để thử lại.');
     } finally {
@@ -250,7 +264,7 @@ export const ClassTable: React.FC<ClassTableProps> = ({ query, onQueryChange, on
                   </td>
                   <td className="px-3 text-text-secondary font-mono tabular-nums">{cls.id}</td>
                   <td className="px-3">
-                    <ClassNameCell cls={cls} onSelectClass={onSelectClass} />
+                    <ClassNameCell cls={cls} classHref={classHref} />
                   </td>
                   <td className="px-3 text-text-secondary tabular-nums">{cls.school_year || 'Chưa có dữ liệu'}</td>
                   <td className="px-3 text-text-secondary">

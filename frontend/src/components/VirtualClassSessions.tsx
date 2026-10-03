@@ -1,4 +1,5 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
+import { Link } from 'react-router-dom';
 import { Card } from './ui/card';
 import { Badge } from './ui/badge';
 import { Play, Calendar, Clock, ArrowRight, Radio } from 'lucide-react';
@@ -8,42 +9,42 @@ interface VirtualClassSessionsProps {
   selectedOrgId?: number;
   className?: string;
   onEnterSession: (sessionId: number, sessionName: string, isActive: boolean) => void;
+  sessionHref: (sessionId: number) => string;
 }
 
 export const VirtualClassSessions: React.FC<VirtualClassSessionsProps> = ({
   selectedOrgId,
   className,
-  onEnterSession
+  onEnterSession,
+  sessionHref,
 }) => {
   const [sessions, setSessions] = useState<any[]>([]);
   const [activeSession, setActiveSession] = useState<any | null>(null);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const generation = useRef(0);
 
   useEffect(() => {
     if (selectedOrgId) {
       loadSessions(selectedOrgId);
     }
+    return () => { generation.current += 1; };
   }, [selectedOrgId]);
 
-  // Auto-dismiss error after 5 seconds
-  useEffect(() => {
-    if (error) {
-      const timer = setTimeout(() => setError(null), 5000);
-      return () => clearTimeout(timer);
-    }
-  }, [error]);
-
   const loadSessions = async (orgId: number) => {
+    const currentGeneration = ++generation.current;
     setLoading(true);
+    setError(null);
     try {
       const data = await getVirtualClassSessions(orgId);
+      if (currentGeneration !== generation.current) return;
       setSessions(data.sessions);
       setActiveSession(data.active_session);
     } catch (err) {
-      console.error(err);
+      if (currentGeneration !== generation.current) return;
+      setError('Không tải được danh sách phiên học. Hãy thử lại.');
     } finally {
-      setLoading(false);
+      if (currentGeneration === generation.current) setLoading(false);
     }
   };
 
@@ -86,7 +87,7 @@ export const VirtualClassSessions: React.FC<VirtualClassSessionsProps> = ({
           <button
             onClick={handleCreateSession}
             disabled={loading || activeSession !== null}
-            className={`flex items-center gap-2 px-4 py-2 rounded-md font-medium transition-colors ${
+            className={`min-h-11 flex items-center gap-2 px-4 py-2 rounded-md font-medium transition-colors ${
               activeSession !== null 
                 ? 'bg-card-subtle text-text-disabled cursor-not-allowed border border-border'
                 : 'bg-brand-primary text-white hover:bg-brand-primary/90 shadow-sm'
@@ -105,13 +106,13 @@ export const VirtualClassSessions: React.FC<VirtualClassSessionsProps> = ({
 
       {/* Inline error message */}
       {error && (
-        <div className="rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 flex items-center justify-between">
+        <div role="alert" className="rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 flex flex-wrap items-center justify-between gap-2">
           <span>{error}</span>
           <button
-            onClick={() => setError(null)}
-            className="text-red-500 hover:text-red-700 text-xs font-medium ml-4 shrink-0"
+            onClick={() => selectedOrgId && loadSessions(selectedOrgId)}
+            className="text-red-700 underline text-sm font-medium min-h-11 shrink-0"
           >
-            Đóng
+            Thử lại
           </button>
         </div>
       )}
@@ -141,13 +142,13 @@ export const VirtualClassSessions: React.FC<VirtualClassSessionsProps> = ({
               </div>
             </div>
 
-            <button
-              onClick={() => onEnterSession(activeSession.id, activeSession.name, true)}
-              className="w-full py-2 rounded-md text-sm font-medium flex items-center justify-center gap-1.5 transition-colors bg-brand-primary text-white hover:bg-brand-primary/90 shadow-sm"
+            <Link
+              to={sessionHref(activeSession.id)}
+              className="w-full min-h-11 py-2 rounded-md text-sm font-medium flex items-center justify-center gap-1.5 transition-colors bg-brand-primary text-white hover:bg-brand-primary/90 shadow-sm"
             >
               Vào phòng ngay
               <ArrowRight className="w-3.5 h-3.5" />
-            </button>
+            </Link>
           </Card>
         </div>
       )}
@@ -160,7 +161,7 @@ export const VirtualClassSessions: React.FC<VirtualClassSessionsProps> = ({
 
         {loading ? (
           <div className="text-sm text-text-secondary animate-pulse">Đang tải dữ liệu...</div>
-        ) : endedSessions.length === 0 && !activeSession ? (
+        ) : error ? null : endedSessions.length === 0 && !activeSession ? (
           <Card className="p-12 border-dashed flex flex-col items-center justify-center text-center bg-card-subtle/50">
             <p className="text-sm text-text-secondary">Lớp này chưa có phiên học ảo nào.</p>
           </Card>
@@ -193,13 +194,13 @@ export const VirtualClassSessions: React.FC<VirtualClassSessionsProps> = ({
                   )}
                 </div>
 
-                <button
-                  onClick={() => onEnterSession(session.id, session.name, false)}
-                  className="w-full py-1.5 rounded-md text-xs font-medium flex items-center justify-center gap-1.5 transition-colors border border-border text-text-secondary hover:bg-card-subtle hover:text-text-primary group-hover:border-border-strong"
+                <Link
+                  to={sessionHref(session.id)}
+                  className="w-full min-h-11 py-1.5 rounded-md text-sm font-medium flex items-center justify-center gap-1.5 transition-colors border border-border-control text-text-secondary hover:bg-card-subtle hover:text-text-primary"
                 >
                   Xem lại dữ liệu
                   <ArrowRight className="w-3 h-3" />
-                </button>
+                </Link>
               </Card>
             ))}
           </div>

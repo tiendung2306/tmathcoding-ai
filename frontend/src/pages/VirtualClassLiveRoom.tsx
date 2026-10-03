@@ -1,4 +1,5 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '../components/ui/dialog';
 import { Card } from '../components/ui/card';
 import { Badge } from '../components/ui/badge';
 import { Square, AlertTriangle, AlertCircle, CheckCircle2, Clock, Inbox, ArchiveX } from 'lucide-react';
@@ -20,50 +21,58 @@ export const VirtualClassLiveRoom: React.FC<VirtualClassLiveRoomProps> = ({
 }) => {
   const [loading, setLoading] = useState(false);
   const [submissions, setSubmissions] = useState<any[]>([]);
-  const [lastId, setLastId] = useState(0);
+  const lastId = useRef(0);
+  const [fetching, setFetching] = useState(true);
+  const [fetchRetry, setFetchRetry] = useState(0);
+  const [stopError, setStopError] = useState<string | null>(null);
+  const sessionStopped = useRef(onSessionStopped);
+  sessionStopped.current = onSessionStopped;
   const [fetchError, setFetchError] = useState<string | null>(null);
   const [showConfirmStop, setShowConfirmStop] = useState(false);
   const [selectedSubmissionId, setSelectedSubmissionId] = useState<number | null>(null);
 
-  // Poll submissions every 3 seconds if active, or just fetch once if not active
   useEffect(() => {
-    let intervalId: ReturnType<typeof setInterval> | undefined;
-    
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let active = true;
+    let sessionEnded = false;
+    const controller = new AbortController();
     const fetchSubmissions = async () => {
       try {
+        const res = await fetchLiveSubmissions(sessionId, lastId.current, controller.signal);
+        if (!active) return;
         setFetchError(null);
-        const res = await fetchLiveSubmissions(sessionId, lastId);
+        if (isActive && res.is_active === false) {
+          sessionEnded = true;
+          sessionStopped.current();
+        }
         if (res.submissions.length > 0) {
-          setSubmissions(prev => {
-            return [...res.submissions, ...prev];
-          });
-          setLastId(res.last_id);
+          setSubmissions(prev => [...res.submissions, ...prev].filter((item, index, items) => items.findIndex(candidate => candidate.id === item.id) === index));
+          lastId.current = res.last_id;
         }
       } catch (err) {
-        console.error("Lỗi khi fetch live submissions:", err);
-        setFetchError("Không thể tải dữ liệu bài nộp.");
+        if (active) setFetchError("Không thể tải dữ liệu bài nộp.");
+      } finally {
+        if (active) {
+          setFetching(false);
+          if (isActive && !sessionEnded) timer = setTimeout(fetchSubmissions, 3000);
+        }
       }
     };
-
-    if (isActive) {
-      intervalId = setInterval(fetchSubmissions, 3000);
-    } else {
-      fetchSubmissions();
-    }
-    
+    fetchSubmissions();
     return () => {
-      if (intervalId) clearInterval(intervalId);
+      active = false; controller.abort(); if (timer) clearTimeout(timer);
     };
-  }, [isActive, sessionId, lastId]);
+  }, [isActive, sessionId, fetchRetry]);
 
   const handleStopClass = async () => {
     setLoading(true);
+    setStopError(null);
     try {
       await stopVirtualClass(sessionId);
       setShowConfirmStop(false);
       onSessionStopped();
     } catch (err) {
-      console.error(err);
+      setStopError('Không kết thúc được phiên học. Hãy thử lại.');
     } finally {
       setLoading(false);
     }
@@ -109,7 +118,7 @@ export const VirtualClassLiveRoom: React.FC<VirtualClassLiveRoomProps> = ({
             <button
               onClick={() => setShowConfirmStop(true)}
               disabled={loading}
-              className="flex items-center gap-2 px-4 py-2 bg-red-600 text-white rounded-md font-medium hover:bg-red-700 transition-colors disabled:opacity-50 shadow-sm"
+              className="min-h-11 flex items-center gap-2 px-4 py-2 bg-red-600 text-white rounded-md font-medium hover:bg-red-700 transition-colors disabled:opacity-50 shadow-sm"
             >
               <Square className="w-4 h-4 fill-current" />
               Kết thúc lớp học
@@ -119,37 +128,30 @@ export const VirtualClassLiveRoom: React.FC<VirtualClassLiveRoomProps> = ({
       </div>
 
       {/* Confirm Stop Dialog */}
-      {showConfirmStop && (
-        <div
-          className="fixed inset-0 z-40 bg-slate-950/50 flex items-center justify-center px-4"
-          onClick={() => setShowConfirmStop(false)}
-        >
-          <Card
-            className="p-6 w-full max-w-sm shadow-xl z-50 bg-card border-border animate-modal-in"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <h3 className="text-sm font-semibold text-text-primary mb-2">Kết thúc phiên học?</h3>
-            <p className="text-xs text-text-secondary mb-5">
-              Phiên học sẽ dừng lại và không thể bắt đầu lại. Dữ liệu bài nộp vẫn được lưu.
-            </p>
+      <Dialog open={showConfirmStop} onOpenChange={open => { if (!loading) setShowConfirmStop(open); }}>
+          <DialogContent className="max-w-sm">
+            <DialogHeader><DialogTitle>Kết thúc phiên học?</DialogTitle><DialogDescription>Phiên học sẽ dừng lại và không thể bắt đầu lại. Dữ liệu bài nộp vẫn được lưu.</DialogDescription></DialogHeader>
+            {stopError && <p role="alert" className="text-sm text-red-700">{stopError}</p>}
             <div className="flex items-center gap-3 justify-end">
               <button
                 onClick={() => setShowConfirmStop(false)}
-                className="px-4 py-1.5 text-xs font-medium rounded-md border border-border text-text-secondary hover:bg-card-subtle transition-colors"
+                disabled={loading}
+                className="min-h-11 px-4 text-sm font-medium rounded-md border border-border text-text-secondary hover:bg-card-subtle transition-colors"
               >
                 Hủy
               </button>
               <button
                 onClick={handleStopClass}
                 disabled={loading}
-                className="px-4 py-1.5 text-xs font-medium rounded-md bg-red-600 text-white hover:bg-red-700 transition-colors disabled:opacity-50"
+                className="min-h-11 px-4 text-sm font-medium rounded-md bg-red-600 text-white hover:bg-red-700 transition-colors disabled:opacity-50"
               >
                 {loading ? 'Đang xử lý...' : 'Xác nhận kết thúc'}
               </button>
             </div>
-          </Card>
-        </div>
-      )}
+          </DialogContent>
+      </Dialog>
+      {fetching && <p role="status" className="text-sm text-text-secondary">Đang tải bài nộp của phiên học...</p>}
+      {fetchError && <div role="alert" className="text-sm text-red-700"><p>{fetchError}</p><button onClick={() => setFetchRetry(value => value + 1)} className="min-h-11 underline">Thử lại</button></div>}
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Main Feed */}
@@ -164,25 +166,8 @@ export const VirtualClassLiveRoom: React.FC<VirtualClassLiveRoomProps> = ({
             {isActive ? 'Luồng bài nộp trực tiếp' : 'Lịch sử bài nộp'}
           </h3>
           
-          {/* Error state */}
-          {fetchError && submissions.length === 0 && (
-            <Card className="p-6 text-center border-dashed border-red-200 bg-red-50/50">
-              <AlertCircle className="w-6 h-6 text-red-400 mx-auto mb-2" />
-              <p className="text-sm text-red-600 mb-3">{fetchError}</p>
-              <button
-                onClick={() => {
-                  setFetchError(null);
-                  setLastId(0);
-                }}
-                className="text-xs font-medium text-brand-primary hover:underline"
-              >
-                Thử lại
-              </button>
-            </Card>
-          )}
-
           {/* Empty state */}
-          {!fetchError && submissions.length === 0 ? (
+          {!fetching && !fetchError && submissions.length === 0 ? (
             <Card className="p-10 text-center bg-card-subtle/30 border-dashed">
               {isActive ? (
                 <div className="space-y-3">
