@@ -2,27 +2,28 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.core.config import settings
+from app.core.database import source_database
+from app.core.dashboard_database import dashboard_database
+from app.db.migrations import ensure_schema_current
 from app.core.redis import init_redis_pool, close_redis_pool, get_redis_client
 from app.core.job_manager import job_manager
 from app.api.v1.router import api_router
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    await ensure_schema_current(dashboard_database.engine)
     # Startup: initialize Redis pool, recover orphaned jobs, start periodic sweeper
     await init_redis_pool()
     await job_manager.startup_recovery()
     job_manager.start_sweeper(interval_seconds=30)
     
-    # Init DB tables (specifically VirtualClassSession)
-    from app.core.database import engine, Base
-    import app.models.virtual_class
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-        
-    yield
-    # Shutdown: stop sweeper and close Redis connections
-    job_manager.stop_sweeper()
-    await close_redis_pool()
+    try:
+        yield
+    finally:
+        job_manager.stop_sweeper()
+        await close_redis_pool()
+        await dashboard_database.close()
+        await source_database.close()
 
 app = FastAPI(
     title=settings.PROJECT_NAME,

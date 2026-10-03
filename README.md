@@ -2,6 +2,12 @@
 
 Hệ thống Microservice AI Phân Tích Học Lực, Trợ Lý AI Code Doctor, Auto-Tagging & Màn Hình Admin Dashboard cho Nền tảng tmath Online Judge (DMOJ).
 
+Dashboard dùng hai kết nối database độc lập: DB gốc chỉ đọc và `tmath_dashboard`
+do dashboard quản lý bằng migration Alembic có phiên bản. Đọc
+[hướng dẫn database và migration](backend/DB_ARCHITECTURE.md) trước khi cấu hình
+kết nối hoặc sửa schema. Profile `local-source` bên dưới dùng DB gốc local làm fixture;
+khi kết nối DB gốc bên ngoài, bỏ profile và cấu hình `SOURCE_DB_*`.
+
 ---
 
 ## 🏗️ CẤU TRÚC DỰ ÁN (PROJECT STRUCTURE)
@@ -60,17 +66,17 @@ LLM_REQUEST_TIMEOUT_SECONDS=240 # Deadline mặc định, bao gồm retry; Code 
 
 * **Chạy CPU Mode (Mặc định):**
   ```bash
-  docker compose up -d --build
+  docker compose --profile local-source up -d --build
   ```
 
 * **Chạy NVIDIA CUDA GPU Acceleration:**
   ```bash
-  docker compose -f docker-compose.yml -f docker-compose.gpu.yml up -d --build
+  docker compose --profile local-source -f docker-compose.yml -f docker-compose.gpu.yml up -d --build
   ```
 
 * **Chạy AMD ROCm GPU Acceleration:**
   ```bash
-  docker compose -f docker-compose.yml -f docker-compose.rocm.yml up -d --build
+  docker compose --profile local-source -f docker-compose.yml -f docker-compose.rocm.yml up -d --build
   ```
 
 ---
@@ -86,12 +92,15 @@ docker exec -it tmath-backend python /scripts/pull_model.py
 ### Bước 3: Seed 10.1 GB Dữ Liệu Backup Vào MySQL (Chạy 1 lần đầu)
 
 ```bash
-docker exec -it tmath-backend python /scripts/seed_mysql.py
+  docker compose --profile local-source run --rm source-seed
 ```
 
 ---
 
 ### 🧪 Bước 4: Kiểm Tra & Trải Nghiệm AI
+
+Lệnh seed ở bước 3 chỉ dành cho fixture local, không chạy với DB gốc bên ngoài.
+Backend dùng tài khoản chỉ đọc nên không thực hiện import/schema của DB gốc.
 
 * **Cách 1: Giao diện Giao tiếp Web UI (ChatGPT-like UI):** `http://localhost:3000` (Open WebUI)
 * **Cách 2: Trải nghiệm Interactive AI Chat CLI:**

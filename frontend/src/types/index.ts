@@ -241,6 +241,36 @@ export interface ClassSummaryData {
   id: number;
   name: string;
   member_count: number;
+  school_year: string | null;
+  managers: { id: number; name: string }[];
+  creation_date: string | null;
+  last_session_at: string | null;
+  starred_at: string | null;
+}
+
+export type ClassSortField = 'creation_date' | 'name' | 'member_count' | 'id' | 'last_session_at';
+export type SortOrder = 'asc' | 'desc';
+
+export interface ClassListQuery {
+  page: number;
+  page_size: number;
+  q: string;
+  sort_by: ClassSortField;
+  sort_order: SortOrder;
+  starred_only: boolean;
+}
+
+export interface ClassStarData {
+  organization_id: number;
+  starred_at: string | null;
+}
+
+export interface ClassPageData {
+  items: ClassSummaryData[];
+  total: number;
+  page: number;
+  page_size: number;
+  total_pages: number;
 }
 
 export interface StudentSearchItemData {

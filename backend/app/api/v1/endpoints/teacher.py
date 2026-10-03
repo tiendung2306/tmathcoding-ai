@@ -1,16 +1,17 @@
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func, or_
+from sqlalchemy import select, or_
 from app.core.database import get_db
+from app.core.config_database import get_config_db
 from app.models.dmoj import (
-    JudgeOrganization,
     JudgeProfile,
-    JudgeProfileOrganizations,
-    JudgeOrganizationAdmins,
     AuthUser,
 )
 from app.schemas.teacher import (
-    ClassSummary,
+    ClassPage,
+    ClassStarResponse,
+    ClassSortField,
+    SortOrder,
     StudentSearchItem,
     ClassHeatmapResponse,
     StudentDetailResponse,
@@ -20,6 +21,8 @@ from app.schemas.analytics import StudentTagAnalyticsResponse
 from app.services.tag_analytics_service import tag_analytics_service
 from app.services.heatmap_service import heatmap_service
 from app.services.algorithm_competency_service import algorithm_competency_service
+from app.services.class_catalog_service import get_class_page
+from app.services.class_preferences_service import set_class_star
 
 router = APIRouter()
 
@@ -30,50 +33,41 @@ router = APIRouter()
 # và kiểm tra quyền quản lý lớp trước khi trả dữ liệu học sinh.
 # ==============================================================================
 
-@router.get("/my-classes", response_model=list[ClassSummary])
+@router.get("/my-classes", response_model=ClassPage)
 async def get_teacher_classes(
     teacher_id: int = Query(2, description="Profile ID của Giáo viên (Mặc định 2 khi test độc lập)"),
-    db: AsyncSession = Depends(get_db)
+    page: int = Query(1, ge=1),
+    page_size: int = Query(24, ge=1, le=100),
+    q: str = Query("", max_length=128),
+    sort_by: ClassSortField = Query("creation_date"),
+    sort_order: SortOrder = Query("desc"),
+    starred_only: bool = Query(False),
+    db: AsyncSession = Depends(get_db),
+    config_db: AsyncSession = Depends(get_config_db),
 ):
     """F2.1: Danh sách lớp giáo viên QUẢN LÝ (judge_organization_admins) kèm số học sinh thật.
     Super Admin (judge_profile.super_admin=1) xem được toàn bộ tổ chức (SDD §3)."""
-    # Kiểm tra super admin
-    profile = (
-        await db.execute(select(JudgeProfile).where(JudgeProfile.id == teacher_id))
-    ).scalar_one_or_none()
-    is_super_admin = bool(profile and profile.super_admin)
+    return await get_class_page(db, teacher_id, page, page_size, q, sort_by, sort_order, config_db, starred_only)
 
-    member_count_sq = (
-        select(func.count(JudgeProfileOrganizations.id))
-        .where(JudgeProfileOrganizations.organization_id == JudgeOrganization.id)
-        .correlate(JudgeOrganization)
-        .scalar_subquery()
-    )
 
-    if is_super_admin:
-        stmt = (
-            select(JudgeOrganization.id, JudgeOrganization.name, member_count_sq)
-            .order_by(JudgeOrganization.id)
-            .limit(100)
-        )
-    else:
-        stmt = (
-            select(JudgeOrganization.id, JudgeOrganization.name, member_count_sq)
-            .join(JudgeOrganizationAdmins, JudgeOrganizationAdmins.organization_id == JudgeOrganization.id)
-            .where(JudgeOrganizationAdmins.profile_id == teacher_id)
-            .order_by(JudgeOrganization.id)
-            .limit(100)
-        )
+@router.put("/classes/{org_id}/star", response_model=ClassStarResponse)
+async def star_class(
+    org_id: int,
+    teacher_id: int = Query(2, ge=1),
+    db: AsyncSession = Depends(get_db),
+    config_db: AsyncSession = Depends(get_config_db),
+):
+    return await set_class_star(db, config_db, teacher_id, org_id, True)
 
-    res = await db.execute(stmt)
-    return [
-        ClassSummary(
-            id=row.id,
-            name=row.name or f"Lớp {row.id}",
-            member_count=row[2] or 0,
-        )
-        for row in res.all()
-    ]
+
+@router.delete("/classes/{org_id}/star", response_model=ClassStarResponse)
+async def unstar_class(
+    org_id: int,
+    teacher_id: int = Query(2, ge=1),
+    db: AsyncSession = Depends(get_db),
+    config_db: AsyncSession = Depends(get_config_db),
+):
+    return await set_class_star(db, config_db, teacher_id, org_id, False)
 
 @router.get("/students/search", response_model=list[StudentSearchItem])
 async def search_students(

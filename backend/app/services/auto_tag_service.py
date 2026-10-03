@@ -1,12 +1,15 @@
 import asyncio
 import logging
-from datetime import datetime, timezone
+from datetime import datetime
 from typing import Any, Dict, NamedTuple, Optional
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, desc
 
 from app.core.config import settings
+from app.core.time import utc_now
 from app.core.database import AsyncSessionLocal
+from app.core.dashboard_database import DashboardSessionLocal
+from app.models.ai_tag import JudgeProblemAiTag
 from app.core.llm_adapter import llm_adapter
 from app.models.dmoj import (
     JudgeProblem,
@@ -15,7 +18,6 @@ from app.models.dmoj import (
     JudgeSubmissionsource,
     JudgeProblemtype,
     JudgeProblemGroup,
-    JudgeProblemAiTag
 )
 from app.schemas.ai import AutoTagResult
 from app.services.feature_extractor import feature_extractor
@@ -27,7 +29,7 @@ logger = logging.getLogger(__name__)
 
 def _utcnow() -> datetime:
     """Mốc thời gian UTC naive (chuẩn lưu chung của DB layer); thay datetime.utcnow() bị deprecated từ Python 3.12."""
-    return datetime.now(timezone.utc).replace(tzinfo=None)
+    return utc_now()
 
 
 class TagOutcome(NamedTuple):
@@ -59,7 +61,7 @@ class AutoTagService:
         self.is_running: bool = False
         self.current_batch: Optional[Dict[str, Any]] = None
 
-    async def get_tagging_status(self, db: AsyncSession) -> Dict[str, Any]:
+    async def get_tagging_status(self, db: AsyncSession, dashboard_db: AsyncSession) -> Dict[str, Any]:
         """
         Lấy thống kê thực tế từ cơ sở dữ liệu MySQL (loại bỏ số liệu cứng).
         """
@@ -69,44 +71,43 @@ class AutoTagService:
         total_problems = total_res.scalar() or 0
 
         # 2. Số bài toán đã được AI gắn nhãn
-        tagged_stmt = select(func.count(JudgeProblemAiTag.id))
-        tagged_res = await db.execute(tagged_stmt)
+        tagged_ids = (await dashboard_db.execute(select(JudgeProblemAiTag.problem_id))).scalars().all()
+        tagged_res = await db.execute(select(func.count(JudgeProblem.id)).where(JudgeProblem.id.in_(tagged_ids)))
         tagged_problems = tagged_res.scalar() or 0
 
         untagged_problems = max(0, total_problems - tagged_problems)
         progress_percentage = round((tagged_problems / total_problems * 100), 1) if total_problems > 0 else 0.0
 
         # 3. Lấy 10 bài toán được AI gắn nhãn gần nhất
-        recent_stmt = (
-            select(
-                JudgeProblemAiTag,
-                JudgeProblem.code.label("problem_code"),
-                JudgeProblem.name.label("problem_name"),
-                JudgeProblemtype.full_name.label("primary_tag_name"),
-                JudgeProblemGroup.full_name.label("bloom_group_name")
-            )
-            .join(JudgeProblem, JudgeProblemAiTag.problem_id == JudgeProblem.id)
-            .outerjoin(JudgeProblemtype, JudgeProblemAiTag.primary_tag_id == JudgeProblemtype.id)
-            .outerjoin(JudgeProblemGroup, JudgeProblemAiTag.bloom_group_id == JudgeProblemGroup.id)
-            .order_by(desc(JudgeProblemAiTag.created_at))
-            .limit(10)
-        )
-        recent_res = await db.execute(recent_stmt)
-        recent_rows = recent_res.all()
+        recent_res = await dashboard_db.execute(select(JudgeProblemAiTag).order_by(desc(JudgeProblemAiTag.created_at)).limit(10))
+        recent_rows = recent_res.scalars().all()
+        problems = {}
+        tag_names = {}
+        bloom_names = {}
+        if recent_rows:
+            problems = {row.id: row for row in (await db.execute(select(JudgeProblem).where(
+                JudgeProblem.id.in_([tag.problem_id for tag in recent_rows])
+            ))).scalars().all()}
+            tag_names = dict((await db.execute(select(JudgeProblemtype.id, JudgeProblemtype.full_name).where(
+                JudgeProblemtype.id.in_([tag.primary_tag_id for tag in recent_rows])
+            ))).all())
+            bloom_names = dict((await db.execute(select(JudgeProblemGroup.id, JudgeProblemGroup.full_name).where(
+                JudgeProblemGroup.id.in_([tag.bloom_group_id for tag in recent_rows if tag.bloom_group_id is not None])
+            ))).all())
 
         recent_tags = []
-        for row in recent_rows:
-            tag_obj = row.JudgeProblemAiTag
+        for tag_obj in recent_rows:
+            problem = problems.get(tag_obj.problem_id)
             recent_tags.append({
                 "id": tag_obj.id,
                 "problem_id": tag_obj.problem_id,
-                "problem_code": row.problem_code or f"PROB_{tag_obj.problem_id}",
-                "problem_name": row.problem_name or f"Bài toán #{tag_obj.problem_id}",
+                "problem_code": (problem.code if problem else None) or f"PROB_{tag_obj.problem_id}",
+                "problem_name": (problem.name if problem else None) or f"Bài toán #{tag_obj.problem_id}",
                 "primary_tag_id": tag_obj.primary_tag_id,
-                "primary_tag_name": row.primary_tag_name or f"Chủ đề #{tag_obj.primary_tag_id}",
+                "primary_tag_name": tag_names.get(tag_obj.primary_tag_id) or f"Chủ đề #{tag_obj.primary_tag_id}",
                 "secondary_tag_ids": tag_obj.secondary_tag_ids or [],
                 "bloom_group_id": tag_obj.bloom_group_id,
-                "bloom_group_name": row.bloom_group_name or (f"Mức {tag_obj.bloom_group_id}" if tag_obj.bloom_group_id else "Chưa xác định"),
+                "bloom_group_name": bloom_names.get(tag_obj.bloom_group_id) or (f"Mức {tag_obj.bloom_group_id}" if tag_obj.bloom_group_id else "Chưa xác định"),
                 "reasoning": tag_obj.reasoning or "",
                 "model": tag_obj.model,
                 "created_at": tag_obj.created_at.strftime("%Y-%m-%d %H:%M:%S") if tag_obj.created_at else ""
@@ -248,12 +249,12 @@ class AutoTagService:
         logger.info(f"Bắt đầu chạy batch auto-tagging cho {batch_size} bài toán...")
 
         try:
-            async with AsyncSessionLocal() as db:
+            async with AsyncSessionLocal() as db, DashboardSessionLocal() as dashboard_db:
                 # Tìm các bài chưa có trong judge_problem_ai_tag
-                subquery = select(JudgeProblemAiTag.problem_id)
+                tagged_ids = (await dashboard_db.execute(select(JudgeProblemAiTag.problem_id))).scalars().all()
                 stmt = (
                     select(JudgeProblem)
-                    .where(~JudgeProblem.id.in_(subquery))
+                    .where(~JudgeProblem.id.in_(tagged_ids))
                     .order_by(JudgeProblem.id.asc())
                     .limit(batch_size)
                 )
@@ -303,13 +304,13 @@ class AutoTagService:
                             model=model_name,
                             created_at=_utcnow()
                         )
-                        db.add(ai_tag_record)
-                        await db.commit()
+                        dashboard_db.add(ai_tag_record)
+                        await dashboard_db.commit()
 
                         self.current_batch["successful"] += 1
                         logger.info(f"Đã gắn nhãn thành công bài {problem.id} ({problem.code}) -> Tag: {tag_result.primary_tag_id}")
                     except Exception as err:
-                        await db.rollback()
+                        await dashboard_db.rollback()
                         self.current_batch["failed"] += 1
                         logger.error(f"Lỗi khi gắn nhãn bài {problem.id}: {err}")
 

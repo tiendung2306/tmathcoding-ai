@@ -1,18 +1,87 @@
-version: '3.8'
-
 services:
   # 1. MySQL 8.0 Database Engine
   db:
     image: mysql:8.0
     container_name: tmath-mysql
     restart: always
+    profiles: [local-source]
     environment:
-      MYSQL_ROOT_PASSWORD: ${MYSQL_PASSWORD:-root}
-      MYSQL_DATABASE: ${MYSQL_DB:-dmoj}
+      MYSQL_ROOT_PASSWORD: ${SOURCE_FIXTURE_ROOT_PASSWORD:?Set SOURCE_FIXTURE_ROOT_PASSWORD}
+      MYSQL_DATABASE: ${SOURCE_DB_NAME:-dmoj}
+      DATABASE_ROLE: source
+      DATABASE_APP_USER: ${SOURCE_DB_USER:-tmath_dashboard_reader}
+      DATABASE_APP_PASSWORD: ${SOURCE_DB_PASSWORD:?Set SOURCE_DB_PASSWORD}
     ports:
-      - "${MYSQL_PORT:-3306}:3306"
+      - "${SOURCE_DB_PUBLISHED_PORT:-3306}:3306"
     volumes:
       - data_mysql:/var/lib/mysql
+      - ./docker/mysql/init-users.sh:/docker-entrypoint-initdb.d/10-users.sh:ro
+    healthcheck:
+      test: [CMD-SHELL, "MYSQL_PWD=$$DATABASE_APP_PASSWORD mysql --protocol=tcp -h127.0.0.1 -u$$DATABASE_APP_USER -Nse 'SELECT 1'"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+
+  dashboard-db:
+    image: mysql:8.0
+    container_name: tmath-dashboard-mysql
+    restart: always
+    environment:
+      MYSQL_ROOT_PASSWORD: ${DASHBOARD_ROOT_PASSWORD:?Set DASHBOARD_ROOT_PASSWORD}
+      MYSQL_DATABASE: ${DASHBOARD_DB_NAME:-tmath_dashboard}
+      DATABASE_ROLE: dashboard
+      DATABASE_APP_USER: ${DASHBOARD_DB_USER:-tmath_dashboard_app}
+      DATABASE_APP_PASSWORD: ${DASHBOARD_DB_PASSWORD:?Set DASHBOARD_DB_PASSWORD}
+      DASHBOARD_MIGRATION_USER: ${DASHBOARD_MIGRATION_USER:-tmath_dashboard_migrator}
+      DASHBOARD_MIGRATION_PASSWORD: ${DASHBOARD_MIGRATION_PASSWORD:?Set DASHBOARD_MIGRATION_PASSWORD}
+    ports:
+      - "${DASHBOARD_DB_PUBLISHED_PORT:-3307}:3306"
+    volumes:
+      - dashboard_mysql:/var/lib/mysql
+      - ./docker/mysql/init-users.sh:/docker-entrypoint-initdb.d/10-users.sh:ro
+    healthcheck:
+      test: [CMD-SHELL, "MYSQL_PWD=$$DASHBOARD_MIGRATION_PASSWORD mysql --protocol=tcp -h127.0.0.1 -u$$DASHBOARD_MIGRATION_USER -Nse 'SELECT 1'"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+
+  dashboard-migrate:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    image: tmath-dashboard-backend
+    env_file: [.env]
+    environment:
+      MYSQL_USER: ""
+      MYSQL_PASSWORD: ""
+      SOURCE_FIXTURE_ROOT_PASSWORD: ""
+      DASHBOARD_ROOT_PASSWORD: ""
+    volumes:
+      - ./backend/app:/app/app:ro
+      - ./backend/migrations:/app/migrations
+      - ./backend/alembic.ini:/app/alembic.ini:ro
+    command: [python, -m, app.db.migrate, deploy]
+    depends_on:
+      dashboard-db:
+        condition: service_healthy
+
+  source-seed:
+    image: tmath-dashboard-backend
+    profiles: [source-seed]
+    depends_on:
+      db:
+        condition: service_healthy
+    command: [python, /scripts/seed_mysql.py]
+    environment:
+      MYSQL_HOST: db
+      MYSQL_PORT: 3306
+      MYSQL_USER: root
+      MYSQL_PASSWORD: ${SOURCE_FIXTURE_ROOT_PASSWORD:?Set SOURCE_FIXTURE_ROOT_PASSWORD}
+      MYSQL_DB: ${SOURCE_DB_NAME:-dmoj}
+      BACKUP_DIR: /backup
+    volumes:
+      - ./scripts:/scripts:ro
+      - ./backup:/backup:ro
 
   # 2. Redis Cache & Task Queue
   redis:
@@ -27,8 +96,6 @@ services:
     image: ollama/ollama:latest
     container_name: tmath-ollama
     restart: always
-    env_file:
-      - .env
     environment:
       - OLLAMA_CONTEXT_LENGTH=${LLM_CONTEXT_WINDOW:-8192}
     ports:
@@ -41,8 +108,6 @@ services:
     image: ghcr.io/open-webui/open-webui:main
     container_name: tmath-open-webui
     restart: always
-    env_file:
-      - .env
     environment:
       - OLLAMA_BASE_URL=http://ollama:11434
       - OLLAMA_CONTEXT_LENGTH=${LLM_CONTEXT_WINDOW:-8192}
@@ -58,26 +123,37 @@ services:
     build:
       context: ./backend
       dockerfile: Dockerfile
+    image: tmath-dashboard-backend
     container_name: tmath-backend
     restart: always
     env_file:
       - .env
     environment:
       - LLM_BASE_URL=http://ollama:11434/v1
-      - MYSQL_HOST=db
+      - DASHBOARD_MIGRATION_USER=
+      - DASHBOARD_MIGRATION_PASSWORD=
+      - DASHBOARD_ROOT_PASSWORD=
+      - MYSQL_USER=
+      - MYSQL_PASSWORD=
+      - SOURCE_FIXTURE_ROOT_PASSWORD=
       - REDIS_HOST=redis
       - REDIS_PORT=6379
     ports:
       - "8000:8000"
     volumes:
       - ./backend/app:/app/app
+      - ./backend/migrations:/app/migrations:ro
+      - ./backend/alembic.ini:/app/alembic.ini:ro
       - ./scripts:/scripts
       - ./backup:/app/backup
       - ./backup:/backup
     depends_on:
-      - db
-      - redis
-      - ollama
+      dashboard-migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_started
+      ollama:
+        condition: service_started
 
   # 6. React Frontend Dashboard
   frontend:
@@ -99,5 +175,6 @@ services:
 
 volumes:
   data_mysql:
+  dashboard_mysql:
   ollama_data:
   open_webui_data:

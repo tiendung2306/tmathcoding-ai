@@ -2,26 +2,23 @@ import React, { useState, useEffect } from 'react';
 import { Card } from './ui/card';
 import { Badge } from './ui/badge';
 import { Play, Calendar, Clock, ArrowRight, Radio } from 'lucide-react';
-import { ClassSummaryData } from '../types';
 import { getVirtualClassSessions, startVirtualClass } from '../services/api';
 
 interface VirtualClassSessionsProps {
   selectedOrgId?: number;
-  classes: ClassSummaryData[];
+  className?: string;
   onEnterSession: (sessionId: number, sessionName: string, isActive: boolean) => void;
 }
 
 export const VirtualClassSessions: React.FC<VirtualClassSessionsProps> = ({
   selectedOrgId,
-  classes,
+  className,
   onEnterSession
 }) => {
   const [sessions, setSessions] = useState<any[]>([]);
   const [activeSession, setActiveSession] = useState<any | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-
-  const selectedClass = classes.find((c) => c.id === selectedOrgId);
 
   useEffect(() => {
     if (selectedOrgId) {
@@ -63,7 +60,7 @@ export const VirtualClassSessions: React.FC<VirtualClassSessionsProps> = ({
     }
   };
 
-  if (!selectedClass) {
+  if (!selectedOrgId) {
     return (
       <div className="p-6 text-center text-text-secondary">
         Vui lòng chọn một lớp học để bắt đầu.
@@ -79,7 +76,7 @@ export const VirtualClassSessions: React.FC<VirtualClassSessionsProps> = ({
         <div>
           <h1 className="text-xl font-bold text-text-primary flex items-center gap-2">
             <Radio className="w-5 h-5 text-brand-primary" />
-            Lớp học ảo: {selectedClass.name}
+            Lớp học ảo: {className || `Lớp #${selectedOrgId}`}
           </h1>
           <p className="text-sm text-text-secondary mt-1">
             Chọn một phiên học đang diễn ra để theo dõi, hoặc xem lại lịch sử các phiên trước đó.

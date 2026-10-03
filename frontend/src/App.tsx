@@ -3,12 +3,12 @@ import { RoleSelect, Role } from './components/RoleSelect';
 import { Header } from './components/layout/Header';
 import { StudentDashboard } from './pages/StudentDashboard';
 import { AdminDashboard } from './pages/AdminDashboard';
-import { ClassGrid } from './components/ClassGrid';
+import { ClassTable } from './components/ClassTable';
 import { ClassStudentsGrid } from './components/ClassStudentsGrid';
 import { VirtualClassSessions } from './components/VirtualClassSessions';
 import { VirtualClassLiveRoom } from './pages/VirtualClassLiveRoom';
-import { searchStudents, fetchTeacherClasses, fetchClassStudents } from './services/api';
-import { ClassSummaryData, ClassStudentItemData } from './types';
+import { searchStudents, fetchClassStudents } from './services/api';
+import { ClassListQuery, ClassStudentItemData } from './types';
 import { Badge } from './components/ui/badge';
 import { Card } from './components/ui/card';
 import { X, Search } from 'lucide-react';
@@ -18,8 +18,12 @@ export function App() {
   const [studentStep, setStudentStep] = useState<'classes' | 'students' | 'detail'>('classes');
   const [virtualClassStep, setVirtualClassStep] = useState<'classes' | 'sessions' | 'live'>('classes');
   
-  const [classes, setClasses] = useState<ClassSummaryData[]>([]);
-  const [selectedOrgId, setSelectedOrgId] = useState<number>(19);
+  const [classListQuery, setClassListQuery] = useState<ClassListQuery>({
+    page: 1, page_size: 24, q: '', sort_by: 'creation_date', sort_order: 'desc', starred_only: false,
+  });
+  const [selectedClass, setSelectedClass] = useState<{ id: number; name: string } | null>(null);
+  const selectedOrgId = selectedClass?.id;
+  const currentClassName = selectedClass?.name;
   const [classStudents, setClassStudents] = useState<ClassStudentItemData[]>([]);
   const [studentsLoading, setStudentsLoading] = useState<boolean>(false);
 
@@ -34,32 +38,12 @@ export function App() {
   const [searchResults, setSearchResults] = useState<any[]>([]);
   const [isSearching, setIsSearching] = useState<boolean>(false);
 
-  // Load classes on initial mount
-  useEffect(() => {
-    loadClasses();
-  }, []);
-
   // Load class students whenever selectedOrgId changes
   useEffect(() => {
     if (selectedOrgId) {
       loadStudentsOfClass(selectedOrgId);
     }
   }, [selectedOrgId]);
-
-  const loadClasses = async () => {
-    try {
-      const list = await fetchTeacherClasses();
-      setClasses(list);
-      if (list.length > 0) {
-        const currentOrgExists = list.some((c: ClassSummaryData) => c.id === selectedOrgId);
-        if (!currentOrgExists) {
-          setSelectedOrgId(list[0].id);
-        }
-      }
-    } catch (err) {
-      console.error('Không tải được danh sách lớp:', err);
-    }
-  };
 
   const loadStudentsOfClass = async (orgId: number) => {
     setStudentsLoading(true);
@@ -107,7 +91,7 @@ export function App() {
   };
 
   const handleSelectClass = (orgId: number, className?: string) => {
-    setSelectedOrgId(orgId);
+    setSelectedClass({ id: orgId, name: className || `Lớp #${orgId}` });
     if (activeTab === 'student') {
       setStudentStep('students');
     } else if (activeTab === 'teacher') {
@@ -137,8 +121,6 @@ export function App() {
   const handleBackToStudents = () => {
     setStudentStep('students');
   };
-
-  const currentClassName = classes.find((c) => c.id === selectedOrgId)?.name;
 
   if (!activeTab) {
     return <RoleSelect onSelectRole={handleRoleSelect} />;
@@ -228,12 +210,12 @@ export function App() {
         <main className="flex-1 overflow-y-auto">
           {activeTab === 'student' ? (
             studentStep === 'classes' ? (
-              <ClassGrid
-                classes={classes}
+              <ClassTable
+                query={classListQuery}
+                onQueryChange={setClassListQuery}
                 onSelectClass={handleSelectClass}
-                loading={classes.length === 0}
               />
-            ) : studentStep === 'students' ? (
+            ) : studentStep === 'students' && selectedOrgId !== undefined ? (
               <ClassStudentsGrid
                 classNameTitle={currentClassName || `Lớp #${selectedOrgId}`}
                 classId={selectedOrgId}
@@ -254,15 +236,15 @@ export function App() {
             )
           ) : activeTab === 'teacher' ? (
             virtualClassStep === 'classes' ? (
-              <ClassGrid
-                classes={classes}
+              <ClassTable
+                query={classListQuery}
+                onQueryChange={setClassListQuery}
                 onSelectClass={handleSelectClass}
-                loading={classes.length === 0}
               />
             ) : virtualClassStep === 'sessions' ? (
               <VirtualClassSessions
-                selectedOrgId={selectedOrgId}
-                classes={classes}
+                selectedOrgId={selectedOrgId ?? undefined}
+                className={currentClassName}
                 onEnterSession={(sessionId, sessionName, isActive) => {
                   setSelectedSessionId(sessionId);
                   setSelectedSessionName(sessionName);

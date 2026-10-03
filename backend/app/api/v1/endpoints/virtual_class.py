@@ -1,10 +1,11 @@
 import logging
 from typing import List, Optional
-from datetime import datetime, timedelta
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, desc
 from app.core.database import get_db
+from app.core.dashboard_database import get_dashboard_db
+from app.core.time import utc_now
 from app.models.dmoj import JudgeSubmission, JudgeProfile, AuthUser, JudgeProblem, JudgeProfileOrganizations
 from app.models.virtual_class import VirtualClassSession
 from app.schemas.virtual_class import (
@@ -18,7 +19,7 @@ logger = logging.getLogger(__name__)
 @router.get("/{org_id}/sessions", response_model=VirtualClassSessionListResponse)
 async def get_virtual_class_sessions(
     org_id: int,
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_dashboard_db)
 ):
     """Lấy danh sách tất cả các phiên học ảo của một lớp."""
     stmt = (
@@ -53,9 +54,13 @@ async def get_virtual_class_sessions(
 async def start_virtual_class(
     org_id: int,
     name: Optional[str] = None,
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_dashboard_db),
+    source_db: AsyncSession = Depends(get_db),
 ):
     """Bắt đầu một phiên học ảo mới."""
+    from app.models.dmoj import JudgeOrganization
+    if (await source_db.execute(select(JudgeOrganization.id).where(JudgeOrganization.id == org_id))).scalar_one_or_none() is None:
+        raise HTTPException(status_code=404, detail="Không tìm thấy lớp học.")
     # Check if there is an active session
     stmt = select(VirtualClassSession).where(
         VirtualClassSession.org_id == org_id,
@@ -70,7 +75,7 @@ async def start_virtual_class(
     new_session = VirtualClassSession(
         org_id=org_id,
         name=name,
-        start_time=datetime.utcnow()
+        start_time=utc_now()
     )
     db.add(new_session)
     await db.commit()
@@ -87,7 +92,7 @@ async def start_virtual_class(
 @router.post("/sessions/{session_id}/stop", response_model=VirtualClassSessionItem)
 async def stop_virtual_class(
     session_id: int,
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_dashboard_db)
 ):
     """Kết thúc một phiên học ảo."""
     stmt = select(VirtualClassSession).where(VirtualClassSession.id == session_id)
@@ -98,7 +103,7 @@ async def stop_virtual_class(
         raise HTTPException(status_code=404, detail="Không tìm thấy phiên học.")
         
     if session.end_time is None:
-        session.end_time = datetime.utcnow()
+        session.end_time = utc_now()
         await db.commit()
         await db.refresh(session)
         
@@ -115,11 +120,12 @@ async def get_live_submissions(
     session_id: int,
     since_id: int = Query(0, description="Lấy các submission có ID lớn hơn ID này"),
     limit: int = Query(50, description="Số lượng tối đa trả về"),
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
+    dashboard_db: AsyncSession = Depends(get_dashboard_db),
 ):
     """Polling API: Lấy các bài nộp trong một phiên học cụ thể."""
     stmt_sess = select(VirtualClassSession).where(VirtualClassSession.id == session_id)
-    res_sess = await db.execute(stmt_sess)
+    res_sess = await dashboard_db.execute(stmt_sess)
     session = res_sess.scalar_one_or_none()
     
     if not session:

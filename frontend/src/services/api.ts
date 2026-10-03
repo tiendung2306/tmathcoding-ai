@@ -14,7 +14,10 @@ import {
   FailedSubmissionItem,
   SubmissionDetailResponseData,
   JobCreateResponseData,
-  JobStatusResponseData
+  JobStatusResponseData,
+  ClassListQuery,
+  ClassPageData,
+  ClassStarData
 } from '../types';
 
 const API_BASE_URL = '/api/v1';
@@ -69,9 +72,17 @@ export const fetchSubmissionDetail = async (submissionId: number): Promise<Submi
   return res.data;
 };
 
-export const fetchTeacherClasses = async () => {
-  const res = await axios.get(`${API_BASE_URL}/teacher/my-classes`);
+export const fetchTeacherClasses = async (params: ClassListQuery, signal?: AbortSignal): Promise<ClassPageData> => {
+  const res = await axios.get<ClassPageData>(`${API_BASE_URL}/teacher/my-classes`, { params, signal });
   return res.data;
+};
+
+export const setClassStar = async (orgId: number, starred: boolean): Promise<ClassStarData> => {
+  const url = `${API_BASE_URL}/teacher/classes/${orgId}/star`;
+  const response = starred
+    ? await axios.put<ClassStarData>(url)
+    : await axios.delete<ClassStarData>(url);
+  return response.data;
 };
 
 export const fetchClassHeatmap = async (orgId: number, timeRange: TimeRange = 'all'): Promise<ClassHeatmapResponseData> => {

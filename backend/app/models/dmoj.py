@@ -1,5 +1,5 @@
 from datetime import datetime
-from sqlalchemy import Column, Integer, String, Float, DateTime, Text, ForeignKey, SmallInteger, JSON
+from sqlalchemy import Column, Integer, String, Float, Date, DateTime, Text, ForeignKey, SmallInteger, JSON
 from app.core.database import Base
 
 class JudgeProfile(Base):
@@ -13,6 +13,14 @@ class JudgeProfile(Base):
     problem_count = Column(Integer, default=0)
     display_rank = Column(String(50), default="user")
     super_admin = Column(SmallInteger, default=0)
+
+class JudgeSchoolYear(Base):
+    __tablename__ = "judge_schoolyear"
+
+    id = Column(Integer, primary_key=True)
+    start = Column(Date, nullable=False)
+    finish = Column(Date, nullable=False)
+
 
 class JudgeOrganization(Base):
     __tablename__ = "judge_organization"
@@ -114,19 +122,6 @@ class JudgeProblemGroup(Base):
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String(20))
     full_name = Column(String(100))
-
-class JudgeProblemAiTag(Base):
-    """Lưu trữ kết quả tự động gắn nhãn chủ đề và mức độ Bloom của AI (Pipeline F3.1)."""
-    __tablename__ = "judge_problem_ai_tag"
-
-    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
-    problem_id = Column(Integer, ForeignKey("judge_problem.id"), unique=True, index=True, nullable=False)
-    primary_tag_id = Column(Integer, ForeignKey("judge_problemtype.id"), index=True, nullable=False)
-    secondary_tag_ids = Column(JSON, nullable=True)  # List[int]
-    bloom_group_id = Column(Integer, ForeignKey("judge_problemgroup.id"), index=True, nullable=True)
-    reasoning = Column(Text, nullable=True)
-    model = Column(String(100), default="Qwen3.8-4B-GGUF")
-    created_at = Column(DateTime, default=datetime.utcnow, index=True)
 
 class JudgeLanguage(Base):
     __tablename__ = "judge_language"

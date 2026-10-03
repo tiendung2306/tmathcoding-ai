@@ -3,6 +3,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
+from app.core.dashboard_database import get_dashboard_db
 from app.schemas.admin import (
     AutoTagStatusResponse,
     AutoTagBatchRunRequest,
@@ -42,10 +43,10 @@ async def run_auto_tagging_batch(payload: AutoTagBatchRunRequest = AutoTagBatchR
     )
 
 @router.get("/auto-tag/status", response_model=AutoTagStatusResponse)
-async def get_auto_tagging_status(db: AsyncSession = Depends(get_db)):
+async def get_auto_tagging_status(db: AsyncSession = Depends(get_db), dashboard_db: AsyncSession = Depends(get_dashboard_db)):
     """
     Đọc dữ liệu thống kê gắn nhãn thực tế từ cơ sở dữ liệu MySQL,
     trả về tỷ lệ hoàn thành, trạng thái worker và 10 bài vừa được gắn nhãn gần nhất.
     """
-    return await auto_tag_service.get_tagging_status(db)
+    return await auto_tag_service.get_tagging_status(db, dashboard_db)
 
