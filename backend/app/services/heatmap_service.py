@@ -221,7 +221,7 @@ class HeatmapService:
         )
 
     @staticmethod
-    async def get_student_detail(student_id: int, db: AsyncSession, time_range: str = "all") -> StudentDetailResponse:
+    async def get_student_detail(student_id: int, db: AsyncSession, time_range: str = "all", dashboard_db: AsyncSession = None) -> StudentDetailResponse:
         """F2.2: Chi tiết học sinh: profile + lớp học + điểm năng lực 8 trụ cột thuật toán + cảnh báo + thống kê."""
         profile = (
             await db.execute(select(JudgeProfile).where(JudgeProfile.id == student_id))
@@ -246,8 +246,9 @@ class HeatmapService:
         alerts, last_sub = await HeatmapService._get_alerts(db, [student_id])
 
         # Tính điểm năng lực 8 trụ cột thuật toán theo mốc thời gian
-        radar = await algorithm_competency_service.get_student_radar(student_id, time_range, db)
-        bloom_scores = [
+        radar = await algorithm_competency_service.get_student_radar(student_id, time_range, db, dashboard_db)
+        bloom_scores = [StudentBloomScore(group_id=idx + 1, label=axis["title"], score=axis["ac_count"])
+                        for idx, axis in enumerate(radar.axes)] if radar.axes is not None else [
             StudentBloomScore(
                 group_id=idx + 1,
                 label=PILLAR_DISPLAY_LABELS.get(k, k),
@@ -286,7 +287,7 @@ class HeatmapService:
             problem_count=profile.problem_count or 0,
             display_rank=profile.display_rank or "user",
             organizations=organizations,
-            bloom_scores=bloom_scores,
+            bloom_scores=bloom_scores, metric="ac_count" if radar.axes is not None else "score",
             alerts=alerts[student_id],
             last_submission_at=last_sub[student_id],
             summary=StudentDetailSummary(

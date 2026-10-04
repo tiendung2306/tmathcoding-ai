@@ -8,6 +8,7 @@ import os
 class Settings(BaseSettings):
     PROJECT_NAME: str
     API_V1_STR: str = "/api/v1"
+    DASHBOARD_ADMIN_PROFILE_ID: int = Field(default=2, ge=1)
     
     # Backup Directory Configuration
     BACKUP_DIR: str = "backup"

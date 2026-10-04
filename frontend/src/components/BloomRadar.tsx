@@ -37,6 +37,12 @@ const PILLAR_CONFIG = [
 ];
 
 export const BloomRadar: React.FC<BloomRadarProps> = ({ data }) => {
+  if (data.axes) {
+    return <Card><CardHeader><CardTitle>Bài đã giải theo nhóm kỹ năng</CardTitle><p className="text-xs text-text-secondary">Số bài AC riêng biệt{data.time_range && data.time_range !== 'all' ? ` · ${RANGE_LABELS[data.time_range]}` : ''}. Bài đã thử bao gồm bài AC.</p></CardHeader><CardContent>
+      {data.axes.length === 0 && <p className="text-sm text-text-secondary">Chưa có nhóm kỹ năng chứa bài toán.</p>}
+      <dl className="divide-y divide-border">{data.axes.map(axis => <div key={axis.key} className="py-3 flex flex-wrap items-center justify-between gap-3"><div className="min-w-0"><dt className="text-sm font-medium break-words">{axis.title}</dt><dd className="text-xs text-text-secondary mt-1">{axis.attempted_count} bài đã thử · {axis.problem_count} bài trong kho</dd></div><dd className="tabular-nums font-semibold text-sm">{axis.ac_count} bài AC</dd></div>)}</dl>
+    </CardContent></Card>;
+  }
   const isPillars = data.quy_hoach_dong !== undefined;
 
   const chartData = isPillars
@@ -78,7 +84,7 @@ export const BloomRadar: React.FC<BloomRadarProps> = ({ data }) => {
               {isPillars ? 'Bản đồ Năng lực Thuật toán' : 'Phân bố Năng lực Bloom'}
             </CardTitle>
             <p className="text-[11px] text-text-tertiary">
-              Đánh giá đa chiều 4 thành phần: Độ khó bài AC, hành vi nộp, tối ưu thời gian/bộ nhớ và chất lượng mã nguồn
+              {'Đánh giá đa chiều 4 thành phần: Độ khó bài AC, hành vi nộp, tối ưu thời gian/bộ nhớ và chất lượng mã nguồn'}
             </p>
           </div>
         </div>

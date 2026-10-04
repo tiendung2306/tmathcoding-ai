@@ -1,4 +1,5 @@
 import asyncio
+import json
 import unittest
 from contextlib import asynccontextmanager
 from datetime import datetime
@@ -40,8 +41,8 @@ class MigrationTests(unittest.TestCase):
             self.assertEqual(set(inspect(connection).get_table_names()),
                              set(DashboardBase.metadata.tables) | {"alembic_version"})
             self.assertEqual(connection.execute(text("SELECT version_num FROM alembic_version")).scalar(),
-                             "20261003_0001")
-            self.assertEqual(ScriptDirectory.from_config(config).get_heads(), ["20261003_0001"])
+                             "20261004_0003")
+            self.assertEqual(ScriptDirectory.from_config(config).get_heads(), ["20261004_0003"])
             command.downgrade(config, "base")
             self.assertEqual(set(inspect(connection).get_table_names()), {"alembic_version"})
             command.upgrade(config, "head")
@@ -54,6 +55,25 @@ class MigrationTests(unittest.TestCase):
             connection.execute(ClassStar.__table__.insert(), dict(owner_profile_id=2, organization_id=9, starred_at=timestamp))
             command.upgrade(migration_config(connection), "head")
             self.assertEqual(connection.execute(select(ClassStar.starred_at)).scalar(), timestamp)
+
+    def test_fixed_taxonomy_backup_and_downgrade_restore_previous_decisions(self):
+        old = {"nodes": [{"id": "other", "title": "Khác", "description": "x"},
+            {"id": "r", "title": "DP", "description": "x"}], "assignments": {"39": "r"}}
+        proposals = [{"tag_id": 4, "status": "rejected"}]
+        with self.engine.begin() as connection:
+            config = migration_config(connection)
+            command.upgrade(config, "20261004_0002")
+            connection.execute(text("UPDATE skill_configuration SET draft=:doc, published=:doc, proposals=:proposals, revision=3 WHERE id=1"),
+                {"doc": json.dumps(old), "proposals": json.dumps(proposals)})
+            command.upgrade(config, "head")
+            backup = json.loads(connection.execute(text("SELECT taxonomy_backup FROM skill_configuration WHERE id=1")).scalar_one())
+            self.assertEqual((backup["draft"], backup["proposals"], backup["revision"]), (old, proposals, 3))
+            draft = json.loads(connection.execute(text("SELECT draft FROM skill_configuration WHERE id=1")).scalar_one())
+            self.assertEqual((len(draft["nodes"]), draft["assignments"]["39"]), (11, "dp"))
+            command.downgrade(config, "20261004_0002")
+            restored = json.loads(connection.execute(text("SELECT draft FROM skill_configuration WHERE id=1")).scalar_one())
+            self.assertEqual(restored, old)
+            self.assertEqual(connection.execute(text("SELECT revision FROM skill_configuration WHERE id=1")).scalar_one(), 3)
 
     def test_baseline_rejects_incompatible_existing_table(self):
         with self.engine.begin() as connection:
@@ -87,7 +107,7 @@ class MigrationTests(unittest.TestCase):
 class DatabaseBoundaryTests(unittest.TestCase):
     def test_owned_models_are_separate_and_have_no_source_foreign_keys(self):
         self.assertEqual(set(DashboardBase.metadata.tables),
-                         {"class_star", "tmath_virtual_class_session", "judge_problem_ai_tag"})
+                         {"class_star", "tmath_virtual_class_session", "judge_problem_ai_tag", "skill_configuration", "skill_configuration_version"})
         self.assertFalse(set(Base.metadata.tables) & set(DashboardBase.metadata.tables))
         self.assertTrue(all(not table.foreign_keys for table in DashboardBase.metadata.tables.values()))
 

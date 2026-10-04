@@ -16,6 +16,7 @@ router = APIRouter()
 # Giữ tham chiếu tới task nền để GC không thu hồi task đang chạy
 _bg_tasks: set = set()
 
+
 @router.post("/auto-tag/run-batch", response_model=AutoTagBatchRunResponse)
 async def run_auto_tagging_batch(payload: AutoTagBatchRunRequest = AutoTagBatchRunRequest()):
     """

@@ -187,11 +187,21 @@ class AlgorithmCompetencyService:
     async def get_student_radar(
         user_id: int,
         time_range: str,
-        db: AsyncSession
+        db: AsyncSession,
+        dashboard_db: AsyncSession = None,
     ) -> AlgorithmRadar:
         """Tính điểm Radar 8 trục bát giác cho 1 học sinh theo mô hình 4 thành phần đa chiều."""
         ref_now = await AlgorithmCompetencyService.get_reference_now(db)
         cutoff = AlgorithmCompetencyService.get_cutoff_date(time_range, ref_now)
+
+        if dashboard_db is not None:
+            from app.services.skill_config_service import configuration, preview
+            from app.schemas.skill_config import SkillDocument
+            config = await configuration(dashboard_db)
+            if config.published is not None:
+                forest = await preview(SkillDocument.model_validate(config.published), db, user_id, cutoff)
+                return AlgorithmRadar(time_range=time_range, axes=[{"key": root["id"], "title": root["title"],
+                    "ac_count": root["ac_count"], "attempted_count": root["attempted_count"], "problem_count": root["problem_count"]} for root in forest["roots"]])
 
         tag_to_pillar: Dict[int, str] = {}
         for p_key, meta in ALGORITHM_PILLARS.items():
@@ -231,10 +241,14 @@ class AlgorithmCompetencyService:
         pillar_problems: Dict[str, Dict[int, Dict[str, Any]]] = {k: {} for k in PILLAR_KEYS}
         pillar_ac_sub_ids: Dict[str, List[int]] = {k: [] for k in PILLAR_KEYS}
 
+        seen_submissions = set()
         for row in sub_rows:
             p_key = tag_to_pillar.get(row[9])
             if not p_key:
                 continue
+            if (p_key, row[0]) in seen_submissions:
+                continue
+            seen_submissions.add((p_key, row[0]))
 
             sub_item = {
                 "id": row[0],
@@ -332,7 +346,8 @@ class AlgorithmCompetencyService:
     async def get_class_competency_heatmap(
         org_id: int,
         time_range: str,
-        db: AsyncSession
+        db: AsyncSession,
+        dashboard_db: AsyncSession = None,
     ) -> ClassHeatmapResponse:
         """Tính ma trận 8 cột năng lực thuật toán cho cả lớp theo mốc thời gian."""
         org = (
@@ -346,14 +361,23 @@ class AlgorithmCompetencyService:
             JudgeProfileOrganizations.organization_id == org_id
         )
         member_ids = [r[0] for r in (await db.execute(m_stmt)).all()]
+        configured_document = None
+        configured_columns = PILLAR_COLUMNS
+        if dashboard_db is not None:
+            from app.services.skill_config_service import configuration, class_ratings
+            from app.schemas.skill_config import SkillDocument
+            config = await configuration(dashboard_db)
+            if config.published is not None:
+                configured_document = SkillDocument.model_validate(config.published)
+                configured_columns, _ = await class_ratings(configured_document, db, [], None)
         if not member_ids:
             return ClassHeatmapResponse(
                 organization_id=org_id,
                 organization_name=org.name or f"Lớp #{org_id}",
                 time_range=time_range,
-                columns=PILLAR_COLUMNS,
+                columns=configured_columns, metric="ac_count" if configured_document is not None else "score",
                 students=[],
-                class_averages=[0.0] * len(PILLAR_COLUMNS),
+                class_averages=[0.0] * len(configured_columns),
             )
 
         # Lấy profile names
@@ -409,11 +433,17 @@ class AlgorithmCompetencyService:
         n = len(rows)
         averages = [round(s / n, 1) if n > 0 else 0.0 for s in col_sums]
 
+        if configured_document is not None:
+            configured_columns, configured_scores = await class_ratings(configured_document, db, member_ids, cutoff)
+            for row in rows:
+                row.scores = configured_scores[row.user_id]
+            averages = [round(sum(row.scores[i] for row in rows) / n, 1) for i in range(len(configured_columns))] if n else [0.0] * len(configured_columns)
+
         return ClassHeatmapResponse(
             organization_id=org_id,
             organization_name=org.name or f"Lớp #{org_id}",
             time_range=time_range,
-            columns=PILLAR_COLUMNS,
+            columns=configured_columns, metric="ac_count" if configured_document is not None else "score",
             students=rows,
             class_averages=averages,
         )

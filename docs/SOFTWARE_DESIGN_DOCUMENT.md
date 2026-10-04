@@ -3,7 +3,7 @@
 
 * **Tên dự án:** tmath AI Diagnostic & Admin Dashboard Service
 * **Phiên bản:** 3.1.0 (Cập nhật Pipeline Auto-Tagging dựa trên Code AC & Constraints thay cho RAG)
-* **Ngày cập nhật:** 17/08/2026
+* **Ngày cập nhật:** 04/10/2026 (bổ sung quyết định cây kỹ năng và kiến trúc DB)
 * **Trạng thái:** Approved Specification
 
 ---
@@ -19,7 +19,7 @@
 3. [MÔ HÌNH DỮ LIỆU & PHÂN QUYỀN (DATA & PERMISSION MODEL)](#3-mô-hình-dữ-liệu--phân-quyền-data--permission-model)
 4. [ĐẶC TẢ CHI TIẾT TÍNH NĂNG (FUNCTIONAL SPECIFICATIONS)](#4-đặc-tả-chi-tiết-tính-năng-functional-specifications)
    - 4.1. Phía Học Sinh (Student Features)
-     - F1.1: Cây Kỹ Năng 99 Node & Bloom Radar Chart
+     - F1.1: Cây kỹ năng 10 gốc cố định, tag và kho bài
      - F1.2: Trợ Lý AI Code Doctor (Socratic Debugger với Instructor Framework)
      - F1.3: Chế Độ Tự Học (Independent Learning Mode)
    - 4.2. Phía Giáo Viên & Admin (Teacher & Admin Dashboard)
@@ -36,6 +36,11 @@
 ## 1. TỔNG QUAN HỆ THỐNG (SYSTEM OVERVIEW)
 
 Hệ thống **tmath AI Diagnostic & Admin Dashboard** là dịch vụ microservice phát triển bằng **Python (FastAPI)** kết hợp **React Dashboard**, kết nối trực tiếp CSDL MySQL 8.0 gốc của tmath (10.1 GB).
+
+Runtime chỉ đọc database gốc qua `SOURCE_DB_*`. Cấu hình dashboard, đề xuất AI,
+star và phiên học nằm trong `tmath_dashboard` qua kết nối `DASHBOARD_DB_*` độc lập.
+DDL chỉ chạy bằng Alembic với tài khoản migration riêng. Quy ước hiện hành nằm
+trong [DB_ARCHITECTURE.md](../backend/DB_ARCHITECTURE.md).
 
 ---
 
@@ -73,7 +78,14 @@ graph TD
 ## 4. ĐẶC TẢ CHI TIẾT TÍNH NĂNG (FUNCTIONAL SPECIFICATIONS)
 
 ### 4.1. Phía Học Sinh (Student Features)
-- **F1.1: Cây Kỹ Năng 99 Node & Bloom Radar Chart**
+- **F1.1: Cây kỹ năng 10 gốc cố định, tag và kho bài.** Quyết định triển khai thay
+  phương án 99 node phẳng/Bloom Radar: 10 nhóm chuyên môn và Khác, mở một gốc rồi
+  một tag để xem kho bài tìm/lọc/phân trang; modal đề và lịch sử nộp giữ ngữ cảnh.
+  AC đếm theo bài riêng biệt có AC trong khoảng chọn; không có mục tiêu AC hoặc
+  điểm 0–100. Nhóm không có bài được ẩn. Danh sách gốc cố định; quản trị gắn tag
+  lưu ngay hoặc duyệt/từ chối đề xuất AI đã lưu trong DB. Đọc
+  [đặc tả hiện hành](SKILL_TREE_CONFIGURATION.md) và
+  [bảng phân loại](SKILL_TAG_TAXONOMY_2026-10-04.md).
 - **F1.2: Trợ Lý AI Code Doctor (Socratic Debugger với Instructor Framework)**
 - **F1.3: Chế Độ Tự Học (Independent Learning Mode)**
 
@@ -102,7 +114,22 @@ graph TD
 ---
 
 ## 5. ĐẶC TẢ API & CHUẨN GIAO TIẾP (API SPECIFICATION)
-*(Giữ nguyên các RESTful Endpoints)*
+Các endpoint cũ được giữ. Cây kỹ năng bổ sung:
+
+| Endpoint | Chức năng |
+| --- | --- |
+| `GET /api/v1/student/skill-tree` | Forest và số bài theo học sinh/khoảng thời gian |
+| `GET /api/v1/student/skill-tags/{tag_id}/problems` | Kho bài theo tag, tìm/lọc/phân trang |
+| `GET /api/v1/student/skill-problems/{problem_id}` | Đề bài và lịch sử nộp của học sinh, phân trang |
+| `GET /api/v1/admin/skill-config` | Gốc, danh mục tag, gán đã lưu và đề xuất |
+| `PUT /api/v1/admin/skill-config` | Gắn tag và áp dụng ngay, có kiểm tra revision |
+| `POST /api/v1/admin/skill-config/suggest` | AI đề xuất theo lượt và lưu vào dashboard DB |
+| `DELETE /api/v1/admin/skill-config/suggest/{run_id}` | Dừng lượt AI |
+| `PATCH /api/v1/admin/skill-config/proposals` | Duyệt/từ chối các tag được chọn |
+
+Không có API xem trước hoặc lịch sử phiên bản trong luồng hiện hành. Head schema
+dashboard là `20261004_0003`; triển khai migration trước backend mới. Quy ước
+standalone dùng ID profile, chưa thay thế xác thực phiên/JWT khi tích hợp.
 
 ---
 

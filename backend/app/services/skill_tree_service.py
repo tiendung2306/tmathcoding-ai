@@ -11,7 +11,8 @@ class SkillTreeService:
     async def get_student_skill_tree(
         user_id: int,
         db: AsyncSession,
-        time_range: str = "all"
+        time_range: str = "all",
+        dashboard_db: AsyncSession = None,
     ) -> SkillTreeResponse:
         # Fetch profile
         prof_stmt = select(JudgeProfile).where(JudgeProfile.id == user_id)
@@ -22,6 +23,20 @@ class SkillTreeService:
         # Xác định cutoff date theo mốc thời gian
         ref_now = await algorithm_competency_service.get_reference_now(db)
         cutoff_date = algorithm_competency_service.get_cutoff_date(time_range, ref_now)
+
+        if dashboard_db is not None:
+            from app.services.skill_config_service import configuration, preview
+            from app.schemas.skill_config import SkillDocument
+            config = await configuration(dashboard_db)
+            if config.published is not None:
+                forest = await preview(SkillDocument.model_validate(config.published), db, user_id, cutoff_date)
+                return SkillTreeResponse(user_id=user_id, student_name=student_name, time_range=time_range,
+                    bloom_radar=AlgorithmRadar(time_range=time_range,
+                        axes=[{"key": root["id"], "title": root["title"],
+                               "ac_count": root["ac_count"], "attempted_count": root["attempted_count"],
+                               "problem_count": root["problem_count"]} for root in forest["roots"]]),
+                    skill_tree_nodes=[], skill_forest=forest["roots"],
+                    configuration_version=config.published_version, scoring=forest["scoring"])
 
         # Fetch solved problems by topic in the selected time range
         stmt = (

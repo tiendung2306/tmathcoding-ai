@@ -124,7 +124,7 @@ export const StudentDetailModal: React.FC<StudentDetailModalProps> = ({
               <div className="flex items-center justify-between">
                 <h4 className="text-xs font-semibold text-text-primary flex items-center gap-1.5">
                   <BarChart3 className="w-3.5 h-3.5 text-brand-primary" />
-                  Năng lực 8 Trụ cột Thuật toán
+                  {data.metric === 'ac_count' ? 'Bài AC theo nhóm kỹ năng' : 'Năng lực theo nhóm kỹ năng'}
                 </h4>
                 {data.time_range && data.time_range !== 'all' && (
                   <Badge variant="outline" className="text-[10px] font-sans text-brand-primary border-brand-primary/30 bg-brand-primary/5">
@@ -137,14 +137,14 @@ export const StudentDetailModal: React.FC<StudentDetailModalProps> = ({
                   <div key={b.group_id} className="space-y-1">
                     <div className="flex justify-between text-[11px] text-text-secondary">
                       <span>{b.label}</span>
-                      <span className="font-mono font-medium">{b.score}%</span>
+                      <span className="font-mono font-medium">{b.score}{data.metric === 'ac_count' ? ' bài AC' : '%'}</span>
                     </div>
-                    <div className="w-full h-1.5 bg-card rounded-full overflow-hidden border border-border/40">
+                    {data.metric !== 'ac_count' && <div className="w-full h-1.5 bg-card rounded-full overflow-hidden border border-border/40">
                       <div
                         className={`h-full rounded-full transition-all duration-300 ${barColor(b.score)}`}
                         style={{ width: `${Math.min(100, b.score)}%` }}
                       />
-                    </div>
+                    </div>}
                   </div>
                 ))}
               </div>

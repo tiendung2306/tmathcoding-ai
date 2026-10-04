@@ -1,4 +1,5 @@
 import axios from 'axios';
+import type { SkillPage, SkillProblem, SkillProblemDetail } from '../types';
 import {
   TimeRange,
   SkillTreeResponseData,
@@ -21,6 +22,18 @@ import {
 } from '../types';
 
 const API_BASE_URL = '/api/v1';
+
+export async function fetchSkillProblems(tagId: number, userId: number, timeRange: TimeRange, status: string, q: string, page: number, signal?: AbortSignal): Promise<SkillPage<SkillProblem>> {
+  return (await axios.get(`${API_BASE_URL}/student/skill-tags/${tagId}/problems`, {
+    params: { user_id: userId, time_range: timeRange, status, q, page }, signal, timeout: 30_000,
+  })).data;
+}
+
+export async function fetchSkillProblemDetail(problemId: number, userId: number, timeRange: TimeRange, page: number, signal?: AbortSignal): Promise<SkillProblemDetail> {
+  return (await axios.get(`${API_BASE_URL}/student/skill-problems/${problemId}`, {
+    params: { user_id: userId, time_range: timeRange, page }, signal, timeout: 30_000,
+  })).data;
+}
 
 export const fetchSkillTree = async (userId: number, timeRange: TimeRange = 'all'): Promise<SkillTreeResponseData> => {
   const res = await axios.get(`${API_BASE_URL}/student/skill-tree`, {

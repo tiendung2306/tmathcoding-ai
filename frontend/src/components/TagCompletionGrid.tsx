@@ -9,6 +9,7 @@ type TagFilter = 'all' | 'strong' | 'weak' | 'unattempted';
 
 interface TagCompletionGridProps {
   tags: TagMetricItemData[];
+  countsOnly?: boolean;
 }
 
 const FILTERS: { key: TagFilter; label: string }[] = [
@@ -63,7 +64,7 @@ const statusStyles: Record<TagStatus, { bar: string; badge: string; frame: strin
   },
 };
 
-export const TagCompletionGrid: React.FC<TagCompletionGridProps> = ({ tags }) => {
+export const TagCompletionGrid: React.FC<TagCompletionGridProps> = ({ tags, countsOnly = false }) => {
   const [filter, setFilter] = useState<TagFilter>('all');
   const [query, setQuery] = useState('');
 
@@ -75,9 +76,9 @@ export const TagCompletionGrid: React.FC<TagCompletionGridProps> = ({ tags }) =>
         // Ẩn các tag rỗng (không có bài & không có lượt nộp) ở chế độ Tất cả
         passFilter = !(t.total_problems === 0 && t.submissions_stat.total_submissions === 0);
       } else if (filter === 'strong') {
-        passFilter = t.status === 'MASTERED';
+        passFilter = countsOnly ? t.ac_problems > 0 : t.status === 'MASTERED';
       } else if (filter === 'weak') {
-        passFilter = t.status === 'NEEDS_IMPROVEMENT';
+        passFilter = countsOnly ? t.ac_problems === 0 && t.submissions_stat.total_submissions > 0 : t.status === 'NEEDS_IMPROVEMENT';
       } else {
         passFilter = t.status === 'UNATTEMPTED';
       }
@@ -85,7 +86,7 @@ export const TagCompletionGrid: React.FC<TagCompletionGridProps> = ({ tags }) =>
       if (!q) return true;
       return normalize(t.name).includes(q) || normalize(t.key).includes(q);
     });
-  }, [tags, filter, query]);
+  }, [tags, filter, query, countsOnly]);
 
   const getVerdictBadge = (label: string, rate: number, variant: 'ac' | 'wa' | 'tle') => (
     <Badge variant={variant} className="text-[10px] py-0 px-1.5 font-mono">
@@ -121,7 +122,7 @@ export const TagCompletionGrid: React.FC<TagCompletionGridProps> = ({ tags }) =>
                     : 'text-text-secondary hover:text-text-primary'
                 }`}
               >
-                {f.label}
+                {countsOnly && f.key === 'strong' ? 'Có AC' : countsOnly && f.key === 'weak' ? 'Đã thử, chưa AC' : f.label}
               </button>
             ))}
           </div>
@@ -158,7 +159,7 @@ export const TagCompletionGrid: React.FC<TagCompletionGridProps> = ({ tags }) =>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3 max-h-[560px] overflow-y-auto pr-1">
             {filtered.map((tag) => (
-              <TagCard key={tag.tag_id} tag={tag} getVerdictBadge={getVerdictBadge} />
+              <TagCard key={tag.tag_id} tag={tag} countsOnly={countsOnly} getVerdictBadge={getVerdictBadge} />
             ))}
           </div>
         )}
@@ -169,17 +170,18 @@ export const TagCompletionGrid: React.FC<TagCompletionGridProps> = ({ tags }) =>
 
 interface TagCardProps {
   tag: TagMetricItemData;
+  countsOnly: boolean;
   getVerdictBadge: (label: string, rate: number, variant: 'ac' | 'wa' | 'tle') => JSX.Element;
 }
 
-const TagCard: React.FC<TagCardProps> = ({ tag, getVerdictBadge }) => {
+const TagCard: React.FC<TagCardProps> = ({ tag, countsOnly, getVerdictBadge }) => {
   const st = tag.submissions_stat;
   const style = statusStyles[tag.status];
   const hasHighError = st.wa_rate > 50 || st.tle_rate > 50;
 
   return (
     <div
-      className={`border rounded-md p-3.5 transition-colors ${style.frame} ${
+      className={`border rounded-md p-3.5 transition-colors ${countsOnly ? 'border-border bg-card' : style.frame} ${
         hasHighError ? 'ring-1 ring-red-500' : ''
       }`}
     >
@@ -194,24 +196,24 @@ const TagCard: React.FC<TagCardProps> = ({ tag, getVerdictBadge }) => {
           </span>
         </div>
         <div className="flex flex-col items-end gap-1 flex-shrink-0">
-          <span className={`text-[10px] px-1.5 py-0.2 rounded-sm border font-medium ${style.badge}`}>
-            {STATUS_LABEL[tag.status]}
+          <span className={`text-[10px] px-1.5 py-0.2 rounded-sm border font-medium ${countsOnly ? 'text-text-secondary border-border' : style.badge}`}>
+            {countsOnly ? tag.ac_problems > 0 ? 'Có AC' : st.total_submissions > 0 ? 'Đã thử, chưa AC' : 'Chưa làm' : STATUS_LABEL[tag.status]}
           </span>
           <span className="text-[10px] text-text-tertiary">Quy mô {WEIGHT_LABEL[tag.tag_weight]}</span>
         </div>
       </div>
 
       {/* Completion progress bar */}
-      <div className="w-full bg-card h-1.5 rounded-full overflow-hidden mb-1 border border-border/40">
+      {!countsOnly && <div className="w-full bg-card h-1.5 rounded-full overflow-hidden mb-1 border border-border/40">
         <div
           className={`h-full rounded-full transition-all duration-300 ${style.bar}`}
           style={{ width: `${Math.min(100, tag.completion_rate)}%` }}
         />
-      </div>
+      </div>}
       <div className="flex justify-between text-[10px] text-text-secondary mb-2">
-        <span>Tỷ lệ hoàn thành</span>
+        <span>{countsOnly ? 'Bài AC / bài trong kho' : 'Tỷ lệ hoàn thành'}</span>
         <span className="font-mono">
-          {tag.ac_problems}/{tag.total_problems} • {tag.completion_rate}%
+          {tag.ac_problems}/{tag.total_problems}{!countsOnly && ` • ${tag.completion_rate}%`}
         </span>
       </div>
 

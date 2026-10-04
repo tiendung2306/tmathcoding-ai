@@ -105,6 +105,38 @@ docker compose --profile local-source up -d --build
 Compose đợi MySQL dashboard sẵn sàng, chạy `dashboard-migrate` một lần, rồi mới
 khởi động backend. Production nên dùng migration như một deployment job riêng.
 
+## Cấu hình cây kỹ năng
+
+Head hiện tại là `20261004_0003`. Các revision mới của cây kỹ năng:
+
+| Revision | Thay đổi trong dashboard |
+| --- | --- |
+| `20261004_0001` | Tạo `skill_configuration` và bảng snapshot cũ `skill_configuration_version` |
+| `20261004_0002` | Thêm JSON `proposals` để lưu từng lượt đề xuất AI và quyết định duyệt/từ chối |
+| `20261004_0003` | Thêm `taxonomy_version`, `taxonomy_backup`; chuyển sang 10 gốc cố định và Khác |
+
+`skill_configuration` chứa draft/published, revision chống ghi đè, ánh xạ tag,
+đề xuất và bản sao trước chuyển đổi. UI không còn lịch sử phiên bản hay xem trước;
+bảng snapshot cũ được giữ để tương thích, luồng hiện tại không ghi snapshot mới
+vào bảng này. `taxonomy_backup` là bản sao vận hành của lần chuyển đổi gốc cố định.
+
+Revision mới nạp bảng phân loại 99 tag đã thống nhất, giữ các override ở gốc nhận
+biết và làm phẳng nhóm con về gốc đó. Nếu có gốc custom đã gắn tag nhưng chưa có
+ánh xạ rõ, migration dừng trước khi thêm cột. Operator cần đọc thông báo, đối chiếu
+gán cũ và xác định ánh xạ trước khi chạy lại; không sửa revision đã triển khai.
+Tag phát sinh ngoài bảng 99 vẫn đọc từ nguồn và nằm trong Khác đến khi được gắn.
+
+Backend khóa danh sách gốc sau chuyển đổi; thao tác quản trị chỉ đổi gán tag.
+Mỗi thay đổi gán tay lưu và áp dụng trong cùng giao dịch. Đề xuất AI lưu riêng từng
+lượt, chỉ gắn sau khi quản trị duyệt; từ chối được giữ nội bộ theo scope để kết quả
+AI đến muộn không hồi sinh đề xuất. Không thay tag/bài/submission ở nguồn.
+
+Đọc [hướng dẫn cây kỹ năng](../docs/SKILL_TREE_CONFIGURATION.md) để xem luồng,
+ý nghĩa thống kê và các kiểm chứng chuyển đổi. Các API student tiếp tục dùng ID
+profile theo quy ước standalone; fallback quản trị dùng `DASHBOARD_ADMIN_PROFILE_ID`
+và kiểm tra quyền trên nguồn. Khi tích hợp đăng nhập, thay bằng danh tính từ phiên
+hoặc JWT đã xác thực.
+
 ## Chuyển dữ liệu từ kiến trúc cũ
 
 1. Backup, dừng backend/worker cũ để dữ liệu không thay đổi trong lúc sao chép.

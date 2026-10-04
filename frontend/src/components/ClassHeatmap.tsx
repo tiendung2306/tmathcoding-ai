@@ -18,7 +18,9 @@ export const ClassHeatmap: React.FC<ClassHeatmapProps> = ({
   timeRange,
   onTimeRangeChange,
 }) => {
+  const counts = data.metric === 'ac_count';
   const getCellColor = (score: number) => {
+    if (counts) return 'bg-card text-text-primary border-border';
     if (score >= 80) return 'bg-emerald-50 text-emerald-700 border-emerald-200';
     if (score >= 50) return 'bg-sky-50 text-sky-700 border-sky-200';
     if (score >= 20) return 'bg-amber-50 text-amber-700 border-amber-200';
@@ -57,7 +59,7 @@ export const ClassHeatmap: React.FC<ClassHeatmapProps> = ({
         <div>
           <CardTitle className="text-sm flex items-center gap-2">
             <Layers className="w-4 h-4 text-brand-primary" />
-            Bản đồ năng lực lớp học (8 Trụ cột thuật toán)
+            {counts ? 'Bài AC theo nhóm kỹ năng' : 'Bản đồ năng lực lớp học'} · {data.columns.length} nhóm
           </CardTitle>
           <CardDescription className="text-xs">
             Lớp: <span className="text-text-primary font-medium">{data.organization_name}</span>
@@ -105,7 +107,7 @@ export const ClassHeatmap: React.FC<ClassHeatmapProps> = ({
                           score
                         )}`}
                       >
-                        {score}%
+                        {score}{counts ? ' bài' : '%'}
                       </span>
                     </td>
                   ))}
@@ -124,12 +126,12 @@ export const ClassHeatmap: React.FC<ClassHeatmapProps> = ({
             <tfoot>
               <tr className="border-t-2 border-border bg-card-subtle font-semibold">
                 <td className="py-2.5 px-3 text-text-primary text-[11px] uppercase tracking-wider sticky left-0 bg-card-subtle z-10 border-r border-border/40">
-                  Trung bình lớp
+                  {counts ? 'Trung bình bài AC/học sinh' : 'Trung bình lớp'}
                 </td>
                 {data.class_averages.map((avg, idx) => (
                   <td key={idx} className="py-2.5 px-2 text-center">
                     <span className="inline-block w-12 py-0.5 rounded-sm text-xs font-mono font-bold bg-card text-sky-700 border border-border">
-                      {Math.round(avg)}%
+                      {counts && data.students.length === 0 ? '—' : counts ? `${avg.toFixed(1)} bài` : `${Math.round(avg)}%`}
                     </span>
                   </td>
                 ))}

@@ -55,6 +55,7 @@ class HeatmapStudentRow(BaseModel):
     alerts: List[str]  # 'STUCK', 'GAP', 'INACTIVE'
 
 class ClassHeatmapResponse(BaseModel):
+    metric: str = "score"
     organization_id: int
     organization_name: str
     time_range: str = "all"
@@ -75,6 +76,7 @@ class StudentDetailSummary(BaseModel):
     total_submissions_period: int = 0
 
 class StudentDetailResponse(BaseModel):
+    metric: str = "score"
     """F2.2: Student Search & Detail View."""
     user_id: int
     name: str

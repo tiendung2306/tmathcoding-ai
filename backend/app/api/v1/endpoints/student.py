@@ -14,11 +14,35 @@ from app.schemas.ai import CodeDoctorRequest, CodeDoctorResponse
 from app.schemas.jobs import JobCreateResponse
 from app.schemas.analytics import StudentTagAnalyticsResponse, AICommentaryResponse
 from app.services.skill_tree_service import skill_tree_service
+from app.core.dashboard_database import get_dashboard_db
 from app.services.code_doctor_service import code_doctor_service
 from app.services.tag_analytics_service import tag_analytics_service
 from app.services.tag_ai_service import tag_ai_service
 
 router = APIRouter()
+
+
+@router.get("/skill-tags/{tag_id}/problems")
+async def get_tag_problems(
+    tag_id: int, user_id: int = Query(..., gt=0),
+    time_range: str = Query("all", pattern="^(1d|7d|30d|1y|all)$"),
+    status: str = Query("all", pattern="^(all|ac|attempted|unattempted)$"),
+    q: str = Query("", max_length=200), page: int = Query(1, ge=1), page_size: int = Query(20, ge=1, le=50),
+    db: AsyncSession = Depends(get_db),
+):
+    from app.services.skill_problem_service import tag_problems
+    return await tag_problems(db, tag_id, user_id, time_range, status, q, page, page_size)
+
+
+@router.get("/skill-problems/{problem_id}")
+async def get_skill_problem(
+    problem_id: int, user_id: int = Query(..., gt=0),
+    time_range: str = Query("all", pattern="^(1d|7d|30d|1y|all)$"),
+    page: int = Query(1, ge=1), page_size: int = Query(10, ge=1, le=30),
+    db: AsyncSession = Depends(get_db),
+):
+    from app.services.skill_problem_service import problem_detail
+    return await problem_detail(db, problem_id, user_id, time_range, page, page_size)
 
 # ==============================================================================
 # LƯU Ý TÍCH HỢP (INTEGRATION NOTE):
@@ -31,10 +55,11 @@ router = APIRouter()
 async def get_student_skill_tree(
     user_id: int = Query(1, description="ID của học sinh cần xem (Mặc định 1 khi test độc lập)"),
     time_range: str = Query("all", pattern="^(1d|7d|30d|1y|all)$", description="Mốc thời gian đánh giá (7d, 30d, 1y, all)"),
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
+    dashboard_db: AsyncSession = Depends(get_dashboard_db)
 ):
     """Fetch 99-Node Skill Tree & 8-Pillar Algorithm Radar for a student according to time_range."""
-    return await skill_tree_service.get_student_skill_tree(user_id, db, time_range=time_range)
+    return await skill_tree_service.get_student_skill_tree(user_id, db, time_range=time_range, dashboard_db=dashboard_db)
 
 @router.post("/code-doctor/diagnose", response_model=JobCreateResponse)
 async def diagnose_code(

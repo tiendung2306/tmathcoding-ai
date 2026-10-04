@@ -12,6 +12,7 @@ import { ClassContext, loadClass, loadProfile, loadRoster, loadSession, routeReq
 
 const StudentDashboard = lazy(() => import('./pages/StudentDashboard').then(module => ({ default: module.StudentDashboard })));
 const AdminDashboard = lazy(() => import('./pages/AdminDashboard').then(module => ({ default: module.AdminDashboard })));
+const SkillConfiguration = lazy(() => import('./pages/SkillConfiguration').then(module => ({ default: module.SkillConfiguration })));
 const VirtualClassLiveRoom = lazy(() => import('./pages/VirtualClassLiveRoom').then(module => ({ default: module.VirtualClassLiveRoom })));
 const pageLoading = <p role="status" className="p-5 text-sm text-text-secondary">Đang mở trang...</p>;
 
@@ -116,6 +117,7 @@ export const router = createBrowserRouter([
       loader: ({ params, request }) => routeRequest(() => loadSession(positiveId(params.sessionId), request.signal)),
       handle: { title: data => data?.name || 'Phiên học', crumbs: (data, search) => [classCrumb('teacher', search), { label: data?.class_name || 'Lớp học', to: `/teacher/classes/${data?.org_id}/sessions${search.get('list') ? `?${new URLSearchParams({ list: search.get('list')! })}` : ''}` }, { label: data?.name || 'Phiên học' }] } satisfies PageHandle },
     { path: '/admin', element: <Suspense fallback={pageLoading}><AdminDashboard /></Suspense>, errorElement: <RouteError />, handle: { title: 'Quản trị gắn tag' } satisfies PageHandle },
+    { path: '/admin/skills', element: <Suspense fallback={pageLoading}><SkillConfiguration /></Suspense>, errorElement: <RouteError />, handle: { title: 'Cấu hình cây kỹ năng' } satisfies PageHandle },
     { path: '*', loader: () => { throw new Response('Không tìm thấy trang.', { status: 404 }); }, errorElement: <RouteError /> },
   ] },
 ]);

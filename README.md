@@ -26,8 +26,9 @@ trong tab mới hoạt động theo URL.
 | `/teacher/classes/:classId/sessions` | Phiên học của lớp |
 | `/teacher/sessions/:sessionId` | Theo dõi hoặc xem lại phiên học |
 | `/admin` | Quản trị dashboard |
+| `/admin/skills` | Cấu hình cây kỹ năng và phân loại tag |
 
-Tìm kiếm, bộ lọc, sắp xếp, phân trang và khoảng thời gian dùng query string.
+Tìm kiếm lớp/học sinh, bộ lọc danh sách lớp, sắp xếp, phân trang lớp và khoảng thời gian dùng query string.
 Link từ lớp sang học sinh giữ ngữ cảnh danh sách để breadcrumb đưa người dùng
 về đúng bộ lọc trước đó. Link tìm học sinh toàn cục mở hồ sơ độc lập.
 
@@ -53,6 +54,31 @@ Vite polling trên Docker/Windows dùng chu kỳ 1 giây và bỏ qua cache npm,
 tests. Tránh đặt cache công cụ mới trong cây thư mục được watcher theo dõi.
 
 [Báo cáo kiểm tra điều hướng và UI](anti-slop/audit-001-2026-10-04.md).
+
+Cây kỹ năng dùng 10 gốc cố định và Khác, mở theo luồng gốc → tag → bài toán.
+Mỗi tag có kho bài tìm kiếm/lọc/phân trang; mở bài để xem đề, công thức toán và
+lịch sử nộp. Số AC đếm bài riêng biệt trong khoảng chọn, không chấm điểm 0–100.
+Bộ lọc và trang trong cây giữ khi đóng modal, hiện chưa lưu vào URL.
+
+Màn quản trị `/admin/skills` cho kéo thả hoặc chọn nhóm để lưu ngay. AI phân loại
+tag chưa gắn và lưu danh sách đề xuất vào DB; quản trị duyệt/từ chối trong modal.
+Frontend không yêu cầu chọn tài khoản quản trị. Backend dùng
+`DASHBOARD_ADMIN_PROFILE_ID` và kiểm tra `super_admin` theo quy ước standalone.
+
+Đọc [hướng dẫn cấu hình và thống kê bài AC](docs/SKILL_TREE_CONFIGURATION.md)
+và [bảng phân loại 99 tag](docs/SKILL_TAG_TAXONOMY_2026-10-04.md).
+Cấu hình nằm trong database dashboard. Triển khai toàn bộ chuỗi migration đến
+head `20261004_0003` trước khi chạy backend mới:
+
+```sh
+docker compose run --rm dashboard-migrate python -m app.db.migrate deploy
+```
+
+Migration giữ bản sao cấu hình trước khi chuyển sang gốc cố định và giữ gán tay
+ở gốc nhận biết. Nếu gốc custom có tag nhưng chưa có ánh xạ rõ, migration dừng
+trước DDL để operator bổ sung kế hoạch ánh xạ; không tự ép tag vào Khác.
+Frontend thêm thư viện kéo thả, modal/menu và hiển thị Markdown/công thức.
+Chạy `npm ci` hoặc rebuild container frontend khi lấy phiên bản mới.
 
 ## 🏗️ CẤU TRÚC DỰ ÁN (PROJECT STRUCTURE)
 

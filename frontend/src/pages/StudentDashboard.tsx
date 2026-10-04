@@ -16,6 +16,7 @@ import {
   TimeRange,
 } from '../types';
 import { BloomRadar } from '../components/BloomRadar';
+import { SkillForest } from '../components/SkillForest';
 import { SkillTree } from '../components/SkillTree';
 import { CodeDoctorModal } from '../components/CodeDoctorModal';
 import { FailedSubmissionsList } from '../components/FailedSubmissionsList';
@@ -141,7 +142,7 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
         <div className="bg-card border border-border rounded-lg p-3.5 sm:p-4 grid grid-cols-2 divide-x divide-border/60">
           <div className="px-3 sm:px-6 first:pl-2 sm:first:pl-4 flex flex-col justify-center">
             <p className="text-[11px] text-text-secondary">
-              Bài đã giải{
+              Bài đã AC{
                 timeRange === '1d'
                   ? ' (1 ngày qua)'
                   : timeRange === '7d'
@@ -182,13 +183,13 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
       {/* Bloom Radar: 1 hàng độc lập đầy chiều */}
       {skill.isPending && <SectionLoading label="Đang tải năng lực và cây kỹ năng..." />}
       {skill.isError && <ErrorPanel title="Không tải được sơ đồ kỹ năng" message="Hãy thử tải lại phần dữ liệu này." onRetry={() => { void skill.refetch({ cancelRefetch: false }); }} />}
-      {data && <><div id="section-overview">
+      {data && <>{!data.skill_forest && <div id="section-overview">
         <BloomRadar data={data.bloom_radar} />
-      </div>
+      </div>}
 
       {/* Cây kỹ năng */}
       <div id="section-skill-tree">
-        <SkillTree nodes={data.skill_tree_nodes} />
+        {data.skill_forest ? <SkillForest roots={data.skill_forest} userId={studentId} timeRange={timeRange} /> : <SkillTree nodes={data.skill_tree_nodes} />}
       </div></>}
 
       {/* Failed Submissions (Code Doctor Selection) */}
@@ -204,7 +205,7 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
 
       {/* Tag Completion Grid */}
       {tagData && <div id="section-tag-analytics">
-        <TagCompletionGrid tags={tagData.tags} />
+        {data?.skill_forest ? <details className="skill-panel"><summary className="cursor-pointer px-4 py-3 min-h-11 font-medium">Phân tích lượt nộp theo dạng bài</summary><div className="p-4 border-t border-border"><TagCompletionGrid tags={tagData.tags} countsOnly /></div></details> : <TagCompletionGrid tags={tagData.tags} />}
       </div>}
 
       {/* AI Advisor Commentary Card */}

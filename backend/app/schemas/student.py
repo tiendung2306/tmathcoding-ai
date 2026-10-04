@@ -13,6 +13,7 @@ class PillarBreakdownItem(BaseModel):
     breakdown_items: List[Dict[str, Any]] = []
 
 class AlgorithmRadar(BaseModel):
+    axes: Optional[List[Dict[str, Any]]] = None
     time_range: str = "all"
     quy_hoach_dong: float = 0.0
     cau_truc_du_lieu: float = 0.0
@@ -38,6 +39,9 @@ class SkillTreeResponse(BaseModel):
     time_range: str = "all"
     bloom_radar: AlgorithmRadar
     skill_tree_nodes: List[SkillTreeNode]
+    skill_forest: Optional[List[Dict[str, Any]]] = None
+    configuration_version: int = 0
+    scoring: Optional[str] = None
 
 class StudentRecentSubmission(BaseModel):
     id: int

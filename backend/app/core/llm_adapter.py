@@ -84,14 +84,18 @@ class LLMAdapter:
         system_prompt: str = 'You are an expert AI assistant.', max_retries: int = 3,
         temperature: Optional[float] = None, max_tokens: Optional[int] = None,
         top_p: Optional[float] = None, timeout_seconds: Optional[float] = None,
+        reasoning_effort: Optional[str] = None,
     ) -> T:
         timeout = self._timeout(timeout_seconds)
         try:
             # One deadline includes every Instructor validation retry.
             async with asyncio.timeout(timeout):
+                arguments = self._arguments(prompt, system_prompt, temperature, max_tokens, top_p, timeout)
+                if reasoning_effort is not None:
+                    arguments['reasoning_effort'] = reasoning_effort
                 return await self.client.chat.completions.create(
                     response_model=response_model, max_retries=max_retries,
-                    **self._arguments(prompt, system_prompt, temperature, max_tokens, top_p, timeout),
+                    **arguments,
                 )
         except asyncio.CancelledError:
             logger.info('Structured LLM request cancelled; HTTP connection released')

@@ -20,6 +20,7 @@ export interface PillarBreakdownItem {
 }
 
 export interface BloomRadarData {
+  axes?: { key: string; title: string; ac_count: number; attempted_count: number; problem_count: number }[] | null;
   time_range?: TimeRange;
   quy_hoach_dong?: number;
   cau_truc_du_lieu?: number;
@@ -62,6 +63,9 @@ export interface SkillTreeNodeData {
 }
 
 export interface SkillTreeResponseData {
+  skill_forest?: SkillForestNode[] | null;
+  configuration_version?: number;
+  scoring?: string;
   user_id: number;
   student_name: string;
   time_range?: TimeRange;
@@ -76,6 +80,24 @@ export interface CodeDoctorDiagnosisData {
   summary?: string;
   guiding_question?: string;
   actionable_hint?: string;
+}
+
+export interface SkillDefinition { id: string; title: string; description: string; parent_id: string | null }
+export interface SkillDocument { nodes: SkillDefinition[]; assignments: Record<string, string> }
+export interface SkillTag { id: number; key: string; title: string; problem_count: number }
+export interface SkillConfigState { revision: number; has_published: boolean; document: SkillDocument; tags: SkillTag[]; proposals: import('../services/skillConfig').SkillProposal[] }
+export interface SkillForestNode {
+  id: string; title: string; description: string; problem_count: number;
+  ac_count: number; attempted_count: number; submission_count: number; status: string;
+  tags: SkillTag[]; children: SkillForestNode[];
+  evidence: {id: number; code: string; title: string; solved: boolean}[]; evidence_total: number;
+}
+
+export interface SkillPage<T> { items: T[]; total: number; page: number; page_size: number; total_pages: number }
+export interface SkillProblem { id: number; code: string; title: string; attempts: number; solved: boolean; last_submission_at: string | null }
+export interface SkillProblemDetail {
+  id: number; code: string; title: string; description: string; time_limit: number; memory_limit: number;
+  submissions: SkillPage<{ id: number; date: string; result: string; points: number; time: number | null; memory: number | null }>;
 }
 
 export interface CodeDoctorResponseData {
@@ -159,6 +181,7 @@ export interface HeatmapStudentRowData {
 }
 
 export interface ClassHeatmapResponseData {
+  metric?: 'score' | 'ac_count';
   organization_id: number;
   organization_name: string;
   time_range?: TimeRange;
@@ -317,6 +340,7 @@ export interface StudentRecentSubmissionData {
 }
 
 export interface StudentDetailResponseData {
+  metric?: 'score' | 'ac_count';
   user_id: number;
   name: string;
   username: string;

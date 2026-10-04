@@ -1,4 +1,5 @@
 import React, { useEffect, useState, useRef } from 'react';
+import { Link } from 'react-router-dom';
 import axios from 'axios';
 import {
   fetchAutoTagStatus,
@@ -128,6 +129,7 @@ export const AdminDashboard: React.FC = () => {
 
   return (
     <div className="p-5 max-w-7xl mx-auto space-y-4">
+      <nav aria-label="Quản trị" className="flex gap-2 border-b border-border pb-3"><Link to="/admin" aria-current="page" className="skill-nav skill-nav-active">Gắn nhãn bài toán</Link><Link to="/admin/skills" className="skill-nav">Cây kỹ năng</Link></nav>
       {/* Header gọn: tiêu đề + trạng thái worker + hành động */}
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border pb-3">
         <div className="flex items-center gap-2.5 min-w-0">

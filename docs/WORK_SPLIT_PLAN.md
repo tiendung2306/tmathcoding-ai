@@ -1,6 +1,22 @@
 # KẾ HOẠCH PHÂN CÔNG PHÁT TRIỂN (WORK SPLIT PLAN)
 ## tmath AI Diagnostic & Admin Dashboard Service
 
+## Cập nhật triển khai 04/10/2026
+
+Phần baseline và phân công bên dưới ghi kế hoạch trước đây, không phải báo cáo
+trạng thái của mã hiện tại. Riêng F1.1/A1 đã được thay bằng cây 10 gốc cố định và
+Khác, root → tag → toàn kho bài, số AC riêng biệt và lịch sử nộp; không triển khai
+điểm Bloom/điểm kỹ năng theo đề xuất A1 cũ. Màn quản trị gắn tag lưu ngay và duyệt
+AI trong modal. Cấu hình và đề xuất lưu trong dashboard DB với Alembic head
+`20261004_0003`, nguồn chỉ đọc.
+
+Đã kiểm chứng 104 kiểm thử backend, 19 frontend, build production và migration
+upgrade/check/downgrade/reupgrade trên fixture độc lập. Xem
+[hướng dẫn hiện hành](SKILL_TREE_CONFIGURATION.md) và
+[hồ sơ PM review](reviews/skill-tree-pm-review-2026-10-04.md) để biết phạm vi và giới
+hạn kiểm chứng. Các task khác trong kế hoạch cần đối chiếu code trước khi nhận
+việc; không suy ra trạng thái hiện tại từ baseline cũ.
+
 * **Phiên bản:** 1.1.0
 * **Trạng thái:** Đã duyệt phân công — 2 dev fullstack: **Dũng** (Dev A), **Khải** (Dev B)
 * **Bản trình bày PDF:** `bao-cao-du-an.pdf` (cùng thư mục `docs/`)
