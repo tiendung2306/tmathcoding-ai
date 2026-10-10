@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { ClassStudentItemData } from '../types';
 import { Card, CardContent } from './ui/card';
@@ -31,6 +31,31 @@ interface ClassStudentsGridProps {
 type AlertFilter = 'ALL' | 'HAS_ALERT' | 'STUCK' | 'GAP' | 'INACTIVE';
 type SortField = 'points' | 'problems' | 'name';
 
+const getInitials = (name: string) => {
+  const parts = name.trim().split(/\s+/);
+  if (parts.length >= 2) {
+    return (parts[parts.length - 2][0] + parts[parts.length - 1][0]).toUpperCase();
+  }
+  return name.slice(0, 2).toUpperCase();
+};
+
+function StudentAvatar({ avatarUrl, name }: { avatarUrl: string | null; name: string }) {
+  const [imageFailed, setImageFailed] = useState(false);
+  if (avatarUrl && !imageFailed) {
+    return <img
+      src={avatarUrl}
+      alt=""
+      loading="lazy"
+      referrerPolicy="no-referrer"
+      onError={() => setImageFailed(true)}
+      className="h-10 w-10 shrink-0 rounded-full border border-border object-cover"
+    />;
+  }
+  return <span aria-label={`Ảnh đại diện mặc định của ${name}`} className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-brand-primary/20 bg-brand-primary/10 font-mono text-xs font-semibold text-brand-primary">
+    {getInitials(name)}
+  </span>;
+}
+
 export const ClassStudentsGrid: React.FC<ClassStudentsGridProps> = ({
   classNameTitle,
   classId,
@@ -51,14 +76,6 @@ export const ClassStudentsGrid: React.FC<ClassStudentsGridProps> = ({
   const setSearchQuery = (value: string) => updateFilter('q', value, true);
   const setAlertFilter = (value: AlertFilter) => updateFilter('alert', value === 'ALL' ? '' : value);
   const setSortField = (value: SortField) => updateFilter('sort', value === 'points' ? '' : value);
-
-  const getInitials = (name: string) => {
-    const parts = name.trim().split(/\s+/);
-    if (parts.length >= 2) {
-      return (parts[parts.length - 2][0] + parts[parts.length - 1][0]).toUpperCase();
-    }
-    return name.slice(0, 2).toUpperCase();
-  };
 
   const getAlertBadge = (alert: string) => {
     switch (alert) {
@@ -314,12 +331,9 @@ export const ClassStudentsGrid: React.FC<ClassStudentsGridProps> = ({
               className="bg-card border border-border hover:border-brand-primary/60 hover:shadow-xs p-4 rounded-lg cursor-pointer transition-all duration-150 flex flex-col justify-between group focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary"
             >
               <div className="space-y-3">
-                {/* User Top Row: Avatar Initials + ID */}
                 <div className="flex items-center justify-between gap-2">
                   <div className="flex items-center gap-2 min-w-0">
-                    <div className="w-7 h-7 rounded-md bg-brand-primary/10 border border-brand-primary/20 flex items-center justify-center text-xs font-semibold text-brand-primary shrink-0 font-mono">
-                      {getInitials(st.name)}
-                    </div>
+                    <StudentAvatar avatarUrl={st.avatar_url} name={st.name} />
                     <div className="min-w-0">
                       <h3 className="text-xs sm:text-sm font-semibold text-text-primary group-hover:text-brand-primary transition-colors truncate">
                         {st.name}

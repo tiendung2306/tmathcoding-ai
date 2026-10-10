@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta
+from hashlib import md5
 from typing import Dict, List, Optional, Tuple
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
@@ -74,6 +75,14 @@ class HeatmapService:
         )
         res = await db.execute(stmt)
         return [row[0] for row in res.all()]
+
+    @staticmethod
+    def _get_gravatar_url(email: Optional[str]) -> Optional[str]:
+        """Tmath renders profile pictures with Gravatar's normalized email hash."""
+        if not email or not email.strip():
+            return None
+        email_hash = md5(email.strip().lower().encode("utf-8")).hexdigest()
+        return f"https://www.gravatar.com/avatar/{email_hash}?d=identicon&s=200"
 
     @staticmethod
     async def _get_ac_counts_by_bloom(db: AsyncSession, member_ids: List[int]) -> Dict[int, Dict[str, int]]:
@@ -317,6 +326,7 @@ class HeatmapService:
                 JudgeProfile.id,
                 JudgeProfile.name,
                 AuthUser.username,
+                AuthUser.email,
                 JudgeProfile.points,
                 JudgeProfile.problem_count,
                 JudgeProfile.display_rank,
@@ -335,9 +345,10 @@ class HeatmapService:
                 user_id=r[0],
                 name=r[1] or f"User {r[0]}",
                 username=r[2] or f"user_{r[0]}",
-                points=round(r[3] or 0.0, 1),
-                problem_count=r[4] or 0,
-                display_rank=r[5] or "user",
+                avatar_url=HeatmapService._get_gravatar_url(r[3]),
+                points=round(r[4] or 0.0, 1),
+                problem_count=r[5] or 0,
+                display_rank=r[6] or "user",
                 alerts=alerts.get(r[0], []),
                 last_submission_at=last_sub.get(r[0]),
             )

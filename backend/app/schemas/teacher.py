@@ -42,6 +42,7 @@ class ClassStudentItem(BaseModel):
     user_id: int
     name: str
     username: str
+    avatar_url: Optional[str] = None
     points: float = 0.0
     problem_count: int = 0
     display_rank: str = "user"

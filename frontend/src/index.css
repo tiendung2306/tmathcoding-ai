@@ -195,6 +195,46 @@
   scroll-margin-top: 72px;
 }
 
+/* Khung làm việc giữ điều hướng gần nội dung nhưng không xuất hiện ở landing. */
+.dashboard-header {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  display: flex;
+  min-height: 64px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: .5rem clamp(1rem, 3vw, 2rem);
+  border-bottom: 1px solid var(--border-subtle);
+  background: var(--bg-card);
+}
+.dashboard-brand { display: inline-flex; min-height: 44px; align-items: center; gap: .6rem; color: var(--text-primary); font-size: 1rem; font-weight: 700; text-decoration: none; }
+.dashboard-account { display: inline-flex; min-width: 0; align-items: center; gap: .65rem; }
+.dashboard-account-avatar { display: inline-flex; width: 36px; height: 36px; flex: 0 0 auto; align-items: center; justify-content: center; border: 1px solid var(--border-strong); border-radius: 50%; color: var(--text-secondary); background: var(--bg-subtle); }
+.dashboard-layout { display: flex; min-height: calc(100dvh - 64px); }
+.dashboard-sidebar { position: sticky; top: 64px; display: flex; width: 15rem; height: calc(100dvh - 64px); flex: 0 0 auto; flex-direction: column; padding: 1rem .75rem; border-right: 1px solid var(--border-subtle); background: var(--bg-sidebar); }
+.dashboard-sidebar-nav, .dashboard-sidebar-settings { display: grid; gap: .25rem; }
+.dashboard-student-subnav { display: grid; gap: .25rem; margin: -.125rem 0 .375rem; padding-left: 1rem; }
+.dashboard-student-subnav .dashboard-nav-link { min-height: 40px; padding-block: .5rem; font-size: .8125rem; }
+.dashboard-sidebar-settings { margin-top: auto; padding-top: 1rem; border-top: 1px solid var(--border-subtle); }
+.dashboard-nav-link { display: flex; min-height: 44px; align-items: center; gap: .75rem; padding: .625rem .75rem; border-radius: var(--radius-md); color: var(--text-secondary); font-size: .875rem; font-weight: 500; text-decoration: none; }
+.dashboard-nav-link:hover { color: var(--text-primary); background: var(--bg-subtle); }
+.dashboard-nav-link-active { color: #1D4ED8; background: #DBEAFE; }
+.student-back-link { display: inline-flex; min-height: 36px; align-items: center; gap: .25rem; color: var(--text-secondary); font-size: .875rem; font-weight: 500; text-decoration: none; }
+.student-back-link:hover { color: var(--brand-primary); }
+.student-back-link:focus-visible { outline: 2px solid var(--brand-primary); outline-offset: 2px; border-radius: var(--radius-sm); }
+.dashboard-mobile-menu { display: none; }
+
+@media (max-width: 767px) {
+  .dashboard-header { min-height: 60px; padding: .5rem 1rem; }
+  .dashboard-layout { display: block; min-height: calc(100dvh - 60px); }
+  .dashboard-sidebar { display: none; }
+  .dashboard-mobile-menu { display: block; border-bottom: 1px solid var(--border-subtle); background: var(--bg-sidebar); }
+  .dashboard-mobile-menu > summary { display: flex; min-height: 44px; cursor: pointer; align-items: center; padding: 0 1rem; color: var(--text-secondary); font-size: .875rem; font-weight: 600; }
+  .dashboard-mobile-menu > nav { display: grid; gap: .25rem; padding: .5rem 1rem 1rem; border-top: 1px solid var(--border-subtle); }
+}
+
 /* Scrollbar */
 .skill-proposal-modal {
   display: flex;

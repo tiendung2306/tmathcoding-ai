@@ -322,6 +322,7 @@ export interface ClassStudentItemData {
   user_id: number;
   name: string;
   username: string;
+  avatar_url: string | null;
   points: number;
   problem_count: number;
   display_rank: string;

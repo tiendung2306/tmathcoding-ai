@@ -53,7 +53,7 @@ export const fetchAICommentary = async (
   userId: number,
   timeRange: TimeRange = 'all',
   forceRefresh: boolean = false
-): Promise<AICommentaryResponseData> => {
+): Promise<AICommentaryResponseData | null> => {
   const res = await axios.get(`${API_BASE_URL}/student/analytics/ai-commentary`, {
     params: { user_id: userId, time_range: timeRange, force_refresh: forceRefresh }, timeout: 250_000,
   });

@@ -5,7 +5,7 @@ export type Role = 'student' | 'teacher' | 'admin';
 
 const ROLE_OPTIONS: { id: Role; label: string }[] = [
   { id: 'student', label: 'Học sinh' },
-  { id: 'teacher', label: 'Lớp học ảo' },
+  { id: 'teacher', label: 'Lớp học' },
   { id: 'admin', label: 'Quản trị viên' },
 ];
 

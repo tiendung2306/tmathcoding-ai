@@ -34,6 +34,31 @@ class TagAIService:
         for key in stale_keys:
             self._daily_cache.pop(key, None)
 
+    async def get_cached_daily_ai_commentary(
+        self,
+        user_id: int,
+        time_range: str = "all",
+    ) -> Optional[AICommentaryResponse]:
+        """Return today's saved commentary without collecting data or calling the LLM."""
+        today_str = datetime.utcnow().strftime("%Y-%m-%d")
+        redis_key = f"tmath:ai_commentary:{user_id}:{time_range}:{today_str}"
+        mem_cache_key = f"{user_id}_{time_range}_{today_str}"
+
+        self._evict_stale_cache(today_str)
+
+        cached_json = await cache_get(redis_key)
+        if cached_json:
+            try:
+                logger.info("Redis cache hit for AI commentary key '%s'", redis_key)
+                return AICommentaryResponse.model_validate_json(cached_json)
+            except Exception as error:
+                logger.warning("Failed to parse cached AI commentary for '%s': %s", redis_key, error)
+
+        cached = self._daily_cache.get(mem_cache_key)
+        if cached:
+            logger.info("In-memory cache hit for AI commentary key '%s'", mem_cache_key)
+        return cached
+
     async def get_daily_ai_commentary(
         self,
         user_id: int,
@@ -51,19 +76,9 @@ class TagAIService:
             await cache_delete(redis_key)
             self._daily_cache.pop(mem_cache_key, None)
         else:
-            # 1. Check Redis Cache first (Fast path: ~1-2ms)
-            cached_json = await cache_get(redis_key)
-            if cached_json:
-                try:
-                    logger.info(f"Redis Cache HIT for key '{redis_key}'")
-                    return AICommentaryResponse.model_validate_json(cached_json)
-                except Exception as e:
-                    logger.warning(f"Failed to parse cached JSON for '{redis_key}': {e}")
-
-            # 2. Check local in-memory fallback
-            if mem_cache_key in self._daily_cache:
-                logger.info(f"In-memory Cache HIT for key '{mem_cache_key}'")
-                return self._daily_cache[mem_cache_key]
+            cached = await self.get_cached_daily_ai_commentary(user_id, time_range)
+            if cached:
+                return cached
 
         # Fetch Tag statistics according to time_range
         analytics: StudentTagAnalyticsResponse = await TagAnalyticsService.get_student_tag_analytics(

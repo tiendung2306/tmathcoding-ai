@@ -9,6 +9,9 @@ from app.services.code_doctor_service import CodeDoctorService
 from app.services.auto_tag_service import AutoTagService
 from app.schemas.ai import AutoTagResult
 from app.services.competency_evaluator import analyze_source_code
+from app.services.tag_ai_service import TagAIService
+from app.schemas.analytics import AICommentaryResponse, Recent7DaysSummary
+from app.api.v1.endpoints.student import get_student_ai_commentary
 
 
 class ContextTests(unittest.TestCase):
@@ -76,6 +79,24 @@ def doctor_db():
 
 
 class PipelineTests(unittest.IsolatedAsyncioTestCase):
+    async def test_ai_commentary_cache_read_does_not_generate(self):
+        service = TagAIService()
+        cached = AICommentaryResponse(
+            commentary='Đã lưu.',
+            recent_7days_summary=Recent7DaysSummary(),
+            recommended_tags=[],
+            generated_at='2026-10-10T00:00:00Z',
+        )
+        with patch('app.services.tag_ai_service.cache_get', new=AsyncMock(return_value=cached.model_dump_json())):
+            result = await service.get_cached_daily_ai_commentary(12)
+        self.assertEqual(result, cached)
+
+    async def test_ai_commentary_endpoint_generates_only_when_requested(self):
+        with patch('app.api.v1.endpoints.student.tag_ai_service.get_cached_daily_ai_commentary', new=AsyncMock(return_value=None)) as read_cache, patch('app.api.v1.endpoints.student.tag_ai_service.get_daily_ai_commentary', new=AsyncMock()) as generate:
+            await get_student_ai_commentary(user_id=12, time_range='all', force_refresh=False, db=SimpleNamespace())
+        read_cache.assert_awaited_once_with(12, time_range='all')
+        generate.assert_not_awaited()
+
     async def test_fallback_is_short_lived_and_not_kept_in_memory(self):
         service = CodeDoctorService()
         service._memory_cache[1] = 'stale result'

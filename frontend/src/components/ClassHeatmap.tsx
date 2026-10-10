@@ -131,7 +131,7 @@ export const ClassHeatmap: React.FC<ClassHeatmapProps> = ({
                 {data.class_averages.map((avg, idx) => (
                   <td key={idx} className="py-2.5 px-2 text-center">
                     <span className="inline-block w-12 py-0.5 rounded-sm text-xs font-mono font-bold bg-card text-sky-700 border border-border">
-                      {counts && data.students.length === 0 ? '—' : counts ? `${avg.toFixed(1)} bài` : `${Math.round(avg)}%`}
+                      {counts && data.students.length === 0 ? 'Chưa có dữ liệu' : counts ? `${avg.toFixed(1)} bài` : `${Math.round(avg)}%`}
                     </span>
                   </td>
                 ))}

@@ -3,11 +3,12 @@ import axios from 'axios';
 import { createBrowserRouter, Link, isRouteErrorResponse, useLoaderData, useLocation, useNavigate, useRevalidator, useRouteError, useSearchParams } from 'react-router-dom';
 import App, { PageHandle } from './App';
 import { RoleSelect } from './components/RoleSelect';
+import { SettingsPage } from './pages/SettingsPage';
 import { ClassTable } from './components/ClassTable';
 import { ClassStudentsGrid } from './components/ClassStudentsGrid';
 import { VirtualClassSessions } from './components/VirtualClassSessions';
 import { ClassListQuery, ClassStudentItemData, ClassPageData } from './types';
-import { classListUrl, classQuery, classSearch, positiveId, rosterUrl, studentUrl } from './lib/navigation';
+import { classQuery, classSearch, positiveId, rosterUrl, studentUrl } from './lib/navigation';
 import { ClassContext, loadClass, loadProfile, loadRoster, loadSession, routeRequest, SessionDetail } from './services/navigation';
 
 const StudentDashboard = lazy(() => import('./pages/StudentDashboard').then(module => ({ default: module.StudentDashboard })));
@@ -67,7 +68,9 @@ function RosterPage() {
 function StudentPage() {
   const data = useLoaderData() as StudentData;
   const [params] = useSearchParams();
-  return <Suspense fallback={pageLoading}><StudentDashboard key={data.id} studentId={data.id} studentName={data.name} classStudents={data.students} classId={data.organization?.id} listSearch={params.get('list') || ''} rosterSearch={params.get('roster') || ''} /></Suspense>;
+  const currentStudent = data.students.find(student => student.user_id === data.id);
+  const backTo = data.organization ? rosterUrl(data.organization.id, params.get('list') || '', params.get('roster') || '') : undefined;
+  return <Suspense fallback={pageLoading}><StudentDashboard key={data.id} studentId={data.id} studentName={data.name} avatarUrl={currentStudent?.avatar_url ?? null} backTo={backTo} className={data.organization?.name} /></Suspense>;
 }
 function SessionsPage() {
   const data = useLoaderData() as ClassContext;
@@ -82,7 +85,6 @@ function SessionPage() {
   return <Suspense fallback={pageLoading}><VirtualClassLiveRoom key={data.id} sessionId={data.id} sessionName={data.name} isActive={data.end_time === null} onSessionStopped={() => revalidator.revalidate()} /></Suspense>;
 }
 
-const classCrumb = (area: 'student' | 'teacher', search: URLSearchParams) => ({ label: 'Danh sách lớp', to: classListUrl(area, search.get('list') || '') });
 const classesLoader = ({ request }: { request: Request }) => routeRequest(async () => (await axios.get('/api/v1/teacher/my-classes', { params: classQuery(new URL(request.url).searchParams), signal: request.signal })).data);
 export const router = createBrowserRouter([
   { path: '/', element: <RoleSelect />, errorElement: <RouteError /> },
@@ -96,7 +98,7 @@ export const router = createBrowserRouter([
         const [organization, students] = await Promise.all([loadClass(id, request.signal), loadRoster(id, request.signal)]);
         return { organization, students };
       }),
-      handle: { title: data => data?.organization?.name || 'Học sinh trong lớp', crumbs: (data, search) => [classCrumb('student', search), { label: data?.organization?.name || 'Học sinh trong lớp' }] } satisfies PageHandle },
+      handle: { title: data => data?.organization?.name || 'Học sinh trong lớp' } satisfies PageHandle },
     { path: '/student/students/:studentId', element: <StudentPage />, errorElement: <RouteError />,
       shouldRevalidate: ({ currentParams, nextParams, currentUrl, nextUrl, defaultShouldRevalidate }) => currentParams.studentId !== nextParams.studentId || currentUrl.searchParams.get('class') !== nextUrl.searchParams.get('class') || (currentUrl.search === nextUrl.search && defaultShouldRevalidate),
       loader: ({ params, request }) => routeRequest(async () => {
@@ -109,15 +111,16 @@ export const router = createBrowserRouter([
         if (!student) throw new Response('Học sinh không thuộc lớp này.', { status: 404 });
         return { id, name: student.name, organization, students };
       }),
-      handle: { title: data => data?.name || 'Học sinh', crumbs: (data, search) => [classCrumb('student', search), ...(data?.organization ? [{ label: data.organization.name, to: rosterUrl(data.organization.id, search.get('list') || '', search.get('roster') || '') }] : []), { label: data?.name || 'Học sinh' }] } satisfies PageHandle },
+      handle: { title: data => data?.name || 'Học sinh' } satisfies PageHandle },
     { path: '/teacher/classes/:classId/sessions', element: <SessionsPage />, errorElement: <RouteError />,
       loader: ({ params, request }) => routeRequest(() => loadClass(positiveId(params.classId), request.signal)),
-      handle: { title: data => data?.name || 'Phiên học', crumbs: (data, search) => [classCrumb('teacher', search), { label: data?.name || 'Phiên học' }] } satisfies PageHandle },
+      handle: { title: data => data?.name || 'Phiên học' } satisfies PageHandle },
     { path: '/teacher/sessions/:sessionId', element: <SessionPage />, errorElement: <RouteError />,
       loader: ({ params, request }) => routeRequest(() => loadSession(positiveId(params.sessionId), request.signal)),
-      handle: { title: data => data?.name || 'Phiên học', crumbs: (data, search) => [classCrumb('teacher', search), { label: data?.class_name || 'Lớp học', to: `/teacher/classes/${data?.org_id}/sessions${search.get('list') ? `?${new URLSearchParams({ list: search.get('list')! })}` : ''}` }, { label: data?.name || 'Phiên học' }] } satisfies PageHandle },
+      handle: { title: data => data?.name || 'Phiên học' } satisfies PageHandle },
     { path: '/admin', element: <Suspense fallback={pageLoading}><AdminDashboard /></Suspense>, errorElement: <RouteError />, handle: { title: 'Quản trị gắn tag' } satisfies PageHandle },
     { path: '/admin/skills', element: <Suspense fallback={pageLoading}><SkillConfiguration /></Suspense>, errorElement: <RouteError />, handle: { title: 'Cấu hình cây kỹ năng' } satisfies PageHandle },
+    { path: '/settings', element: <SettingsPage />, errorElement: <RouteError />, handle: { title: 'Cài đặt' } satisfies PageHandle },
     { path: '*', loader: () => { throw new Response('Không tìm thấy trang.', { status: 404 }); }, errorElement: <RouteError /> },
   ] },
 ]);

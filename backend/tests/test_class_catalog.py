@@ -1,5 +1,6 @@
 import unittest
 from datetime import date, datetime, timedelta
+from hashlib import md5
 
 import httpx
 from fastapi import FastAPI
@@ -14,7 +15,7 @@ from app.core.config_database import get_config_db
 from app.models.class_preferences import ClassStar
 from app.models.dmoj import (
     AuthUser, JudgeOrganization, JudgeOrganizationAdmins,
-    JudgeProfile, JudgeProfileOrganizations, JudgeSchoolYear,
+    JudgeProfile, JudgeProfileOrganizations, JudgeSchoolYear, JudgeSubmission,
 )
 from app.models.virtual_class import VirtualClassSession
 from app.services.class_catalog_service import get_class_page
@@ -244,6 +245,27 @@ class ClassCatalogTests(unittest.IsolatedAsyncioTestCase):
                 response = await client.delete("/teacher/classes/1/star")
                 self.assertEqual(response.status_code, 200)
                 self.assertIsNone(response.json()["starred_at"])
+
+    async def test_class_students_expose_gravatar_url_without_exposing_email(self):
+        create_source_tables(self.engine, JudgeSubmission)
+        self.session.get(AuthUser, 3).email = " student@example.com "
+        self.session.commit()
+        app = FastAPI()
+        app.include_router(router, prefix="/teacher")
+
+        async def override_db():
+            yield self.db
+
+        app.dependency_overrides[get_db] = override_db
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
+            response = await client.get("/teacher/classes/1/students")
+
+        self.assertEqual(response.status_code, 200)
+        students = {student["user_id"]: student for student in response.json()}
+        expected_hash = md5(b"student@example.com").hexdigest()
+        self.assertEqual(students[3]["avatar_url"], f"https://www.gravatar.com/avatar/{expected_hash}?d=identicon&s=200")
+        self.assertNotIn("email", students[3])
+        self.assertIsNone(students[4]["avatar_url"])
 
     async def test_virtual_class_lifecycle_uses_dashboard_and_live_reads_source(self):
         from app.models.dmoj import JudgeProblem, JudgeSubmission

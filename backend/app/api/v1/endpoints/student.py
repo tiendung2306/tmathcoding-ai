@@ -99,15 +99,17 @@ async def get_student_tag_analytics(
     """Fetch tag completion metrics and submission statistics for a student according to time_range."""
     return await tag_analytics_service.get_student_tag_analytics(user_id, db, time_range=time_range)
 
-@router.get("/analytics/ai-commentary", response_model=AICommentaryResponse)
+@router.get("/analytics/ai-commentary", response_model=AICommentaryResponse | None)
 async def get_student_ai_commentary(
     user_id: int = Query(1, description="ID của học sinh cần nhận xét AI (Mặc định 1 khi test độc lập)"),
     time_range: str = Query("all", pattern="^(1d|7d|30d|1y|all)$", description="Mốc thời gian đánh giá (7d, 30d, 1y, all)"),
     force_refresh: bool = Query(False, description="Set True để ép LLM sinh nhận xét mới"),
     db: AsyncSession = Depends(get_db)
 ):
-    """Fetch personalized AI commentary and recommendations for a student according to time_range."""
-    return await tag_ai_service.get_daily_ai_commentary(user_id, db, time_range=time_range, force_refresh=force_refresh)
+    """Read today's cached commentary; generate only when explicitly requested."""
+    if not force_refresh:
+        return await tag_ai_service.get_cached_daily_ai_commentary(user_id, time_range=time_range)
+    return await tag_ai_service.get_daily_ai_commentary(user_id, db, time_range=time_range, force_refresh=True)
 
 @router.get("/submissions/recent", response_model=list[StudentRecentSubmission])
 async def get_student_recent_submissions(
