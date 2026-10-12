@@ -18,7 +18,9 @@ trong tab mới hoạt động theo URL.
 
 | Địa chỉ | Màn hình |
 | --- | --- |
-| `/` | Chọn khu vực làm việc |
+| `/` | Đăng nhập admin |
+| `/login` | Chuyển về `/`, giữ liên kết cũ hoạt động |
+| `/settings` | Chuyển về `/student/classes` từ liên kết cũ |
 | `/student/classes` | Danh sách lớp |
 | `/student/classes/:classId/students` | Học sinh trong lớp |
 | `/student/students/:studentId` | Thống kê học sinh |
@@ -38,8 +40,8 @@ tĩnh phải được phục vụ như file, không trả HTML thay cho file b�
 server hiện hỗ trợ tải lại các địa chỉ frontend trực tiếp.
 
 Kiểm tra frontend trong thư mục `frontend`: `npm ci`, `npm test`, `npm run build`.
-Các route tiếp tục dùng quy ước truy cập backend hiện tại của dự án; lựa chọn
-khu vực ở trang đầu không thay thế xác thực tài khoản.
+Các route dữ liệu yêu cầu phiên admin từ backend. Trang `/` là màn đăng nhập;
+sau khi xác thực, admin vào `/student/classes` hoặc trang được yêu cầu trước đó.
 
 TanStack Query quản lý các read của dashboard và ngữ cảnh lớp: cache 30 giây,
 nhận xét AI 5 phút, giữ cache không sử dụng tối đa 5 phút. Request cùng query key
@@ -47,8 +49,8 @@ nhận xét AI 5 phút, giữ cache không sử dụng tối đa 5 phút. Reques
 của đúng học sinh/khoảng thời gian. Shared read được cho phép hoàn tất thay vì hủy
 ngay khi một consumer rời trang; request thống kê có timeout 30 giây, AI 250 giây.
 Retry thực hiện qua từng phần UI, không tự gửi lại request lỗi hoặc sinh AI.
-Khi tích hợp đăng nhập/đăng xuất, xóa query cache khi đổi tài khoản và thêm phạm vi
-tài khoản vào query key. Cache frontend không thay thế kiểm tra quyền backend.
+Đăng xuất xóa query cache. Cache frontend không thay thế kiểm tra
+quyền backend.
 
 Vite polling trên Docker/Windows dùng chu kỳ 1 giây và bỏ qua cache npm, build,
 tests. Tránh đặt cache công cụ mới trong cây thư mục được watcher theo dõi.
@@ -62,17 +64,30 @@ Bộ lọc và trang trong cây giữ khi đóng modal, hiện chưa lưu vào U
 
 Màn quản trị `/admin/skills` cho kéo thả hoặc chọn nhóm để lưu ngay. AI phân loại
 tag chưa gắn và lưu danh sách đề xuất vào DB; quản trị duyệt/từ chối trong modal.
-Frontend không yêu cầu chọn tài khoản quản trị. Backend dùng
-`DASHBOARD_ADMIN_PROFILE_ID` và kiểm tra `super_admin` theo quy ước standalone.
+Frontend dùng tài khoản admin đã đăng nhập. Backend kiểm tra profile nguồn gắn
+với tài khoản này và cờ `super_admin` khi đọc API dashboard.
 
 Đọc [hướng dẫn cấu hình và thống kê bài AC](docs/SKILL_TREE_CONFIGURATION.md)
 và [bảng phân loại 99 tag](docs/SKILL_TAG_TAXONOMY_2026-10-04.md).
 Cấu hình nằm trong database dashboard. Triển khai toàn bộ chuỗi migration đến
-head `20261004_0003` trước khi chạy backend mới:
+head `20261011_0002` trước khi chạy backend mới:
 
 ```sh
 docker compose run --rm dashboard-migrate python -m app.db.migrate deploy
 ```
+
+Dashboard chỉ có đăng nhập, không có đăng ký. Sau migration, operator tạo đúng
+một tài khoản `admin` bằng lệnh dưới đây và nhập mật khẩu tại prompt; lệnh không
+ghi mật khẩu vào Git hay shell history. `DASHBOARD_ADMIN_PROFILE_ID` phải trỏ
+đến profile có `super_admin=1` trong DB nguồn.
+
+```sh
+docker compose run --rm dashboard-migrate python -m app.db.bootstrap_admin
+```
+
+Tài khoản `admin` dùng mật khẩu đã nhập khi bootstrap để vào dashboard.
+Local HTTP cần
+`AUTH_COOKIE_SECURE=false`; môi trường HTTPS giữ giá trị mặc định `true`.
 
 Migration giữ bản sao cấu hình trước khi chuyển sang gốc cố định và giữ gán tay
 ở gốc nhận biết. Nếu gốc custom có tag nhưng chưa có ánh xạ rõ, migration dừng

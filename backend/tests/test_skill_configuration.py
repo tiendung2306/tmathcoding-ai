@@ -408,7 +408,7 @@ class StorageTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual((await client.post('/admin/skill-config/versions/1/restore', json={"revision": 1})).status_code, 404)
             self.assertEqual((await client.post('/admin/skill-config/preview', json={})).status_code, 404)
 
-    async def test_standalone_profile_is_server_configured_and_fail_closed(self):
+    async def test_skill_configuration_requires_login_even_with_source_admin(self):
         app = FastAPI()
         app.include_router(router, prefix="/admin/skill-config")
         async def source():
@@ -419,10 +419,10 @@ class StorageTests(unittest.IsolatedAsyncioTestCase):
         app.dependency_overrides[get_dashboard_db] = dashboard
         async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
             with patch.object(settings, "DASHBOARD_ADMIN_PROFILE_ID", 2):
-                self.assertEqual((await client.get('/admin/skill-config')).status_code, 403)
+                self.assertEqual((await client.get('/admin/skill-config')).status_code, 401)
                 self.source_session.get(JudgeProfile, 2).super_admin = 1
                 self.source_session.commit()
-                self.assertEqual((await client.get('/admin/skill-config')).status_code, 200)
+                self.assertEqual((await client.get('/admin/skill-config')).status_code, 401)
                 self.assertEqual((await client.get('/admin/skill-config', headers={"X-User-ID": "99"})).status_code, 401)
             with patch.object(settings, "DASHBOARD_ADMIN_PROFILE_ID", 99):
                 self.assertEqual((await client.get('/admin/skill-config')).status_code, 401)

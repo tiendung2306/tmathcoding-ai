@@ -1,9 +1,10 @@
 import React, { lazy, Suspense, useCallback, useEffect, useMemo } from 'react';
 import axios from 'axios';
-import { createBrowserRouter, Link, isRouteErrorResponse, useLoaderData, useLocation, useNavigate, useRevalidator, useRouteError, useSearchParams } from 'react-router-dom';
+import { apiClient } from './lib/apiClient';
+import { createBrowserRouter, Link, isRouteErrorResponse, redirect, useLoaderData, useLocation, useNavigate, useRevalidator, useRouteError, useSearchParams } from 'react-router-dom';
 import App, { PageHandle } from './App';
-import { RoleSelect } from './components/RoleSelect';
-import { SettingsPage } from './pages/SettingsPage';
+import { LoginPage } from './pages/LoginPage';
+import { getAccount, type AuthAccount } from './services/auth';
 import { ClassTable } from './components/ClassTable';
 import { ClassStudentsGrid } from './components/ClassStudentsGrid';
 import { VirtualClassSessions } from './components/VirtualClassSessions';
@@ -28,11 +29,12 @@ function RouteError() {
   useEffect(() => { document.title = `${title} · tmath`; }, [title]);
   return <section className="max-w-3xl mx-auto p-5 sm:p-8" aria-labelledby="route-error-title">
     <h1 id="route-error-title" tabIndex={-1} ref={node => node?.focus({ preventScroll: true })} className="text-xl font-semibold">{title}</h1>
-    <p role="alert" className="mt-3 text-text-secondary">{unavailable ? 'Địa chỉ không hợp lệ hoặc dữ liệu không còn trong danh sách được phép xem.' : forbidden ? 'Bạn không có quyền xem dữ liệu này.' : 'Không thể kết nối để tải dữ liệu. Hãy thử lại.'}</p>
+    <p role="alert" className="mt-3 text-text-secondary">{unavailable ? 'Địa chỉ không hợp lệ hoặc dữ liệu không còn trong danh sách được phép xem.' : status === 401 ? 'Phiên đăng nhập đã hết hạn.' : forbidden ? 'Bạn không có quyền xem dữ liệu này.' : 'Không thể kết nối để tải dữ liệu. Hãy thử lại.'}</p>
     <div className="mt-5 flex flex-wrap gap-3">
+      {status === 401 && <Link to={`/?next=${encodeURIComponent(pathname)}`} className="skill-primary">Đăng nhập</Link>}
       {!unavailable && !forbidden && <button disabled={revalidator.state !== 'idle'} onClick={() => revalidator.revalidate()} className="min-h-11 px-4 rounded-md bg-brand-primary text-white">{revalidator.state !== 'idle' ? 'Đang thử lại...' : 'Thử lại'}</button>}
       <Link to={pathname.startsWith('/teacher') ? '/teacher/classes' : '/student/classes'} className="min-h-11 px-4 inline-flex items-center rounded-md border border-border">Về danh sách lớp</Link>
-      <Link to="/" className="min-h-11 px-3 inline-flex items-center underline">Chọn khu vực</Link>
+      <Link to="/admin" className="min-h-11 px-3 inline-flex items-center underline">Về bảng điều khiển</Link>
     </div>
   </section>;
 }
@@ -85,15 +87,44 @@ function SessionPage() {
   return <Suspense fallback={pageLoading}><VirtualClassLiveRoom key={data.id} sessionId={data.id} sessionName={data.name} isActive={data.end_time === null} onSessionStopped={() => revalidator.revalidate()} /></Suspense>;
 }
 
-const classesLoader = ({ request }: { request: Request }) => routeRequest(async () => (await axios.get('/api/v1/teacher/my-classes', { params: classQuery(new URL(request.url).searchParams), signal: request.signal })).data);
+async function requireReadyAccount(request: Request): Promise<AuthAccount> {
+  let account: AuthAccount;
+  try {
+    account = await getAccount();
+  } catch (error) {
+    if (axios.isAxiosError(error) && error.response?.status === 401) {
+      const url = new URL(request.url);
+      throw redirect(`/?next=${encodeURIComponent(url.pathname + url.search)}`);
+    }
+    throw error;
+  }
+  return account;
+}
+
+async function guardedRouteRequest<T>(request: Request, load: () => Promise<T>): Promise<T> {
+  await requireReadyAccount(request);
+  return routeRequest(load);
+}
+
+const classesLoader = ({ request }: { request: Request }) => guardedRouteRequest(request, async () => (await apiClient.get('/api/v1/teacher/my-classes', { params: classQuery(new URL(request.url).searchParams), signal: request.signal })).data);
 export const router = createBrowserRouter([
-  { path: '/', element: <RoleSelect />, errorElement: <RouteError /> },
-  { element: <App />, errorElement: <RouteError />, children: [
+  { path: '/', loader: async () => {
+      try {
+        await getAccount();
+        return redirect('/student/classes');
+      } catch (error) {
+        if (axios.isAxiosError(error) && error.response?.status === 401) return null;
+        throw error;
+      }
+    }, element: <LoginPage />, errorElement: <RouteError /> },
+  { path: '/login', loader: ({ request }) => redirect(`/${new URL(request.url).search}`) },
+  { path: '/settings', loader: () => redirect('/student/classes') },
+  { id: 'app', loader: ({ request }) => requireReadyAccount(request), element: <App />, errorElement: <RouteError />, children: [
     { path: '/student/classes', loader: classesLoader, element: <ClassesPage area="student" />, errorElement: <RouteError />, handle: { title: 'Danh sách lớp' } satisfies PageHandle },
     { path: '/teacher/classes', loader: classesLoader, element: <ClassesPage area="teacher" />, errorElement: <RouteError />, handle: { title: 'Lớp học ảo' } satisfies PageHandle },
     { path: '/student/classes/:classId/students', element: <RosterPage />, errorElement: <RouteError />,
       shouldRevalidate: ({ currentParams, nextParams, defaultShouldRevalidate, currentUrl, nextUrl }) => currentParams.classId !== nextParams.classId || (currentUrl.search === nextUrl.search && defaultShouldRevalidate),
-      loader: ({ params, request }) => routeRequest(async () => {
+      loader: ({ params, request }) => guardedRouteRequest(request, async () => {
         const id = positiveId(params.classId);
         const [organization, students] = await Promise.all([loadClass(id, request.signal), loadRoster(id, request.signal)]);
         return { organization, students };
@@ -101,7 +132,7 @@ export const router = createBrowserRouter([
       handle: { title: data => data?.organization?.name || 'Học sinh trong lớp' } satisfies PageHandle },
     { path: '/student/students/:studentId', element: <StudentPage />, errorElement: <RouteError />,
       shouldRevalidate: ({ currentParams, nextParams, currentUrl, nextUrl, defaultShouldRevalidate }) => currentParams.studentId !== nextParams.studentId || currentUrl.searchParams.get('class') !== nextUrl.searchParams.get('class') || (currentUrl.search === nextUrl.search && defaultShouldRevalidate),
-      loader: ({ params, request }) => routeRequest(async () => {
+      loader: ({ params, request }) => guardedRouteRequest(request, async () => {
         const id = positiveId(params.studentId);
         const search = new URL(request.url).searchParams;
         if (!search.has('class')) return { ...await loadProfile(id, request.signal), organization: null, students: [] };
@@ -113,14 +144,13 @@ export const router = createBrowserRouter([
       }),
       handle: { title: data => data?.name || 'Học sinh' } satisfies PageHandle },
     { path: '/teacher/classes/:classId/sessions', element: <SessionsPage />, errorElement: <RouteError />,
-      loader: ({ params, request }) => routeRequest(() => loadClass(positiveId(params.classId), request.signal)),
+      loader: ({ params, request }) => guardedRouteRequest(request, () => loadClass(positiveId(params.classId), request.signal)),
       handle: { title: data => data?.name || 'Phiên học' } satisfies PageHandle },
     { path: '/teacher/sessions/:sessionId', element: <SessionPage />, errorElement: <RouteError />,
-      loader: ({ params, request }) => routeRequest(() => loadSession(positiveId(params.sessionId), request.signal)),
+      loader: ({ params, request }) => guardedRouteRequest(request, () => loadSession(positiveId(params.sessionId), request.signal)),
       handle: { title: data => data?.name || 'Phiên học' } satisfies PageHandle },
     { path: '/admin', element: <Suspense fallback={pageLoading}><AdminDashboard /></Suspense>, errorElement: <RouteError />, handle: { title: 'Quản trị gắn tag' } satisfies PageHandle },
     { path: '/admin/skills', element: <Suspense fallback={pageLoading}><SkillConfiguration /></Suspense>, errorElement: <RouteError />, handle: { title: 'Cấu hình cây kỹ năng' } satisfies PageHandle },
-    { path: '/settings', element: <SettingsPage />, errorElement: <RouteError />, handle: { title: 'Cài đặt' } satisfies PageHandle },
     { path: '*', loader: () => { throw new Response('Không tìm thấy trang.', { status: 404 }); }, errorElement: <RouteError /> },
   ] },
 ]);

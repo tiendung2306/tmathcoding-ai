@@ -1,17 +1,23 @@
 import asyncio
 import time
-from fastapi import APIRouter, Depends, HTTPException, Header, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 
-from app.core.auth import get_current_user
-from app.core.config import settings
+from app.core.dashboard_auth import require_admin as require_dashboard_admin
 from app.core.database import get_db
 from app.core.dashboard_database import get_dashboard_db
+from app.models.dmoj import JudgeProfile
+from sqlalchemy import select
 from app.schemas.skill_config import SkillConfigWrite, SkillDocument, SkillProposalReview
 from app.services import skill_config_service as service
 
 
-async def get_skill_user(x_user_id: int | None = Header(None, alias="X-User-ID"), source=Depends(get_db)):
-    return await get_current_user(x_user_id=x_user_id if x_user_id is not None else settings.DASHBOARD_ADMIN_PROFILE_ID, db=source)
+async def get_skill_user(account=Depends(require_dashboard_admin), source=Depends(get_db)):
+    profile = (await source.execute(select(JudgeProfile).where(
+        JudgeProfile.id == account.source_profile_id
+    ))).scalar_one_or_none()
+    if profile is None:
+        raise HTTPException(403, "Tài khoản chưa gắn với hồ sơ nguồn.")
+    return profile
 
 
 async def require_admin(user=Depends(get_skill_user)):

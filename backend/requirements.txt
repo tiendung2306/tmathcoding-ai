@@ -7,6 +7,7 @@ alembic>=1.13.1,<2
 aiomysql>=0.2.0
 pymysql>=1.1.0
 cryptography>=42.0.0
+argon2-cffi>=23.1.0,<26
 instructor>=1.2.0
 litellm>=1.30.0
 redis>=5.0.3

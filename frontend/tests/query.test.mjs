@@ -3,7 +3,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import ts from 'typescript';
 import { QueryObserver } from '@tanstack/react-query';
-import axios from 'axios';
+import { tsModuleUrl } from './load-ts.mjs';
 
 const source = await readFile(new URL('../src/lib/queryClient.ts', import.meta.url), 'utf8');
 const javascript = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.ESNext } }).outputText
@@ -57,14 +57,17 @@ test('invalidating shared class data refreshes it; failed reads are retryable ex
 });
 
 test('roster and student navigation reuse the actual shared context requests', async () => {
+  const apiModule = await tsModuleUrl(new URL('../src/lib/apiClient.ts', import.meta.url));
+  const { apiClient } = await import(apiModule);
   const navigationSource = await readFile(new URL('../src/services/navigation.ts', import.meta.url), 'utf8');
   const navigationJS = ts.transpileModule(navigationSource, { compilerOptions: { module: ts.ModuleKind.ESNext } }).outputText
     .replace("'axios'", JSON.stringify(import.meta.resolve('axios')))
+    .replace("'../lib/apiClient'", JSON.stringify(apiModule))
     .replace("'../lib/queryClient'", JSON.stringify(clientModule));
   const { loadClass, loadRoster } = await import(`data:text/javascript;base64,${Buffer.from(navigationJS).toString('base64')}`);
-  const originalGet = axios.get;
+  const originalGet = apiClient.get;
   const requests = [];
-  axios.get = async url => { requests.push(url); return { data: url.endsWith('/students') ? [{ user_id: 1, name: 'An' }] : { id: 390, name: 'Lớp' } }; };
+  apiClient.get = async url => { requests.push(url); return { data: url.endsWith('/students') ? [{ user_id: 1, name: 'An' }] : { id: 390, name: 'Lớp' } }; };
   try {
     const signal = new AbortController().signal;
     await Promise.all([loadClass(390, signal), loadRoster(390, signal)]);
@@ -73,5 +76,5 @@ test('roster and student navigation reuse the actual shared context requests', a
     const cancelled = new AbortController(); cancelled.abort();
     await assert.rejects(loadClass(390, cancelled.signal), error => error.name === 'AbortError');
     assert.equal(requests.length, 2);
-  } finally { axios.get = originalGet; queryClient.clear(); }
+  } finally { apiClient.get = originalGet; queryClient.clear(); }
 });

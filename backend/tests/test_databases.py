@@ -41,8 +41,8 @@ class MigrationTests(unittest.TestCase):
             self.assertEqual(set(inspect(connection).get_table_names()),
                              set(DashboardBase.metadata.tables) | {"alembic_version"})
             self.assertEqual(connection.execute(text("SELECT version_num FROM alembic_version")).scalar(),
-                             "20261004_0003")
-            self.assertEqual(ScriptDirectory.from_config(config).get_heads(), ["20261004_0003"])
+                             "20261011_0002")
+            self.assertEqual(ScriptDirectory.from_config(config).get_heads(), ["20261011_0002"])
             command.downgrade(config, "base")
             self.assertEqual(set(inspect(connection).get_table_names()), {"alembic_version"})
             command.upgrade(config, "head")
@@ -107,9 +107,10 @@ class MigrationTests(unittest.TestCase):
 class DatabaseBoundaryTests(unittest.TestCase):
     def test_owned_models_are_separate_and_have_no_source_foreign_keys(self):
         self.assertEqual(set(DashboardBase.metadata.tables),
-                         {"class_star", "tmath_virtual_class_session", "judge_problem_ai_tag", "skill_configuration", "skill_configuration_version"})
+                         {"class_star", "tmath_virtual_class_session", "judge_problem_ai_tag", "skill_configuration", "skill_configuration_version", "dashboard_account", "dashboard_auth_session"})
         self.assertFalse(set(Base.metadata.tables) & set(DashboardBase.metadata.tables))
-        self.assertTrue(all(not table.foreign_keys for table in DashboardBase.metadata.tables.values()))
+        self.assertTrue(all(foreign_key.column.table.name in DashboardBase.metadata.tables
+                            for table in DashboardBase.metadata.tables.values() for foreign_key in table.foreign_keys))
 
     def test_connections_have_independent_hosts_ports_credentials_and_safe_urls(self):
         settings = Settings(_env_file=None, PROJECT_NAME="test", SOURCE_DB_HOST="source-server", SOURCE_DB_PORT=3306,

@@ -44,3 +44,29 @@ backup*/
 
 # MySQL Data Directory / Local Data Volumes
 data_mysql/
+
+# Local demo / reference applications
+/classroom-web/
+/shadcn-admin/
+
+# Local UI audit output
+/anti-slop/audit-*.md
+/anti-slop/evidence-*/
+
+# Test and tool caches
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
+coverage/
+playwright-report/
+test-results/
+*.tsbuildinfo
+
+# Local credentials
+/.aws/
+/.codex/
+*.pem
+*.key

@@ -26,6 +26,7 @@ class Settings(BaseSettings):
     DASHBOARD_DB_NAME: str = Field(default="tmath_dashboard", pattern=r"^[A-Za-z0-9_]{1,64}$", validation_alias=AliasChoices("DASHBOARD_DB_NAME", "CONFIG_MYSQL_DB"))
     DASHBOARD_MIGRATION_USER: str = ""
     DASHBOARD_MIGRATION_PASSWORD: str = ""
+    AUTH_COOKIE_SECURE: bool = True
 
     @model_validator(mode="after")
     def separate_databases(self):

@@ -1,12 +1,14 @@
 import React, { useEffect, useRef } from 'react';
-import { Outlet, ScrollRestoration, useLocation, useMatches, useNavigation } from 'react-router-dom';
+import { Outlet, ScrollRestoration, useLoaderData, useLocation, useMatches, useNavigation } from 'react-router-dom';
 import { Header } from './components/layout/Header';
 import { Sidebar } from './components/layout/Sidebar';
+import type { AuthAccount } from './services/auth';
 
 export interface PageHandle {
   title: string | ((data: any) => string);
 }
 export function App() {
+  const account = useLoaderData() as AuthAccount;
   const location = useLocation();
   const matches = useMatches();
   const navigation = useNavigation();
@@ -21,7 +23,7 @@ export function App() {
   }, [location.pathname, title]);
   return <div className="min-h-screen bg-app text-text-primary">
     <a href="#main-content" className="sr-only focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-50 bg-card p-3">Đến nội dung chính</a>
-    <Header />
+    <Header account={account} />
     <div className="dashboard-layout">
       <Sidebar />
       <main id="main-content" ref={mainRef} tabIndex={-1} className="min-w-0 flex-1 focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand-primary focus-visible:outline-offset-[-2px]">

@@ -107,7 +107,7 @@ khởi động backend. Production nên dùng migration như một deployment jo
 
 ## Cấu hình cây kỹ năng
 
-Head hiện tại là `20261004_0003`. Các revision mới của cây kỹ năng:
+Head hiện tại là `20261011_0002`. Revision `20261011_0001` tạo tài khoản admin và phiên đăng nhập trong dashboard DB; revision `20261011_0002` bỏ cờ đổi mật khẩu lần đầu. Các revision của cây kỹ năng:
 
 | Revision | Thay đổi trong dashboard |
 | --- | --- |
@@ -132,10 +132,10 @@ lượt, chỉ gắn sau khi quản trị duyệt; từ chối được giữ n�
 AI đến muộn không hồi sinh đề xuất. Không thay tag/bài/submission ở nguồn.
 
 Đọc [hướng dẫn cây kỹ năng](../docs/SKILL_TREE_CONFIGURATION.md) để xem luồng,
-ý nghĩa thống kê và các kiểm chứng chuyển đổi. Các API student tiếp tục dùng ID
-profile theo quy ước standalone; fallback quản trị dùng `DASHBOARD_ADMIN_PROFILE_ID`
-và kiểm tra quyền trên nguồn. Khi tích hợp đăng nhập, thay bằng danh tính từ phiên
-hoặc JWT đã xác thực.
+ý nghĩa thống kê và các kiểm chứng chuyển đổi. Tài khoản admin dashboard gắn
+với `DASHBOARD_ADMIN_PROFILE_ID` khi bootstrap; mỗi request dữ liệu cần phiên
+hợp lệ và xác nhận profile nguồn vẫn có `super_admin=1`. Các ID student/teacher
+trong query chỉ phục vụ chọn dữ liệu dưới quyền admin hiện tại.
 
 ## Chuyển dữ liệu từ kiến trúc cũ
 

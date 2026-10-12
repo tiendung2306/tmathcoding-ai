@@ -1,4 +1,4 @@
-import axios from 'axios';
+import { apiClient } from '../lib/apiClient';
 import type { SkillPage, SkillProblem, SkillProblemDetail } from '../types';
 import {
   TimeRange,
@@ -24,26 +24,26 @@ import {
 const API_BASE_URL = '/api/v1';
 
 export async function fetchSkillProblems(tagId: number, userId: number, timeRange: TimeRange, status: string, q: string, page: number, signal?: AbortSignal): Promise<SkillPage<SkillProblem>> {
-  return (await axios.get(`${API_BASE_URL}/student/skill-tags/${tagId}/problems`, {
+  return (await apiClient.get(`${API_BASE_URL}/student/skill-tags/${tagId}/problems`, {
     params: { user_id: userId, time_range: timeRange, status, q, page }, signal, timeout: 30_000,
   })).data;
 }
 
 export async function fetchSkillProblemDetail(problemId: number, userId: number, timeRange: TimeRange, page: number, signal?: AbortSignal): Promise<SkillProblemDetail> {
-  return (await axios.get(`${API_BASE_URL}/student/skill-problems/${problemId}`, {
+  return (await apiClient.get(`${API_BASE_URL}/student/skill-problems/${problemId}`, {
     params: { user_id: userId, time_range: timeRange, page }, signal, timeout: 30_000,
   })).data;
 }
 
 export const fetchSkillTree = async (userId: number, timeRange: TimeRange = 'all'): Promise<SkillTreeResponseData> => {
-  const res = await axios.get(`${API_BASE_URL}/student/skill-tree`, {
+  const res = await apiClient.get(`${API_BASE_URL}/student/skill-tree`, {
     params: { user_id: userId, time_range: timeRange }, timeout: 30_000,
   });
   return res.data;
 };
 
 export const fetchTagAnalytics = async (userId: number, timeRange: TimeRange = 'all'): Promise<TagAnalyticsResponseData> => {
-  const res = await axios.get(`${API_BASE_URL}/student/analytics/tags`, {
+  const res = await apiClient.get(`${API_BASE_URL}/student/analytics/tags`, {
     params: { user_id: userId, time_range: timeRange }, timeout: 30_000,
   });
   return res.data;
@@ -54,14 +54,14 @@ export const fetchAICommentary = async (
   timeRange: TimeRange = 'all',
   forceRefresh: boolean = false
 ): Promise<AICommentaryResponseData | null> => {
-  const res = await axios.get(`${API_BASE_URL}/student/analytics/ai-commentary`, {
+  const res = await apiClient.get(`${API_BASE_URL}/student/analytics/ai-commentary`, {
     params: { user_id: userId, time_range: timeRange, force_refresh: forceRefresh }, timeout: 250_000,
   });
   return res.data;
 };
 
 export const requestCodeDoctor = async (submissionId: number, forceRefresh: boolean = false): Promise<JobCreateResponseData> => {
-  const res = await axios.post(`${API_BASE_URL}/student/code-doctor/diagnose`, {
+  const res = await apiClient.post(`${API_BASE_URL}/student/code-doctor/diagnose`, {
     submission_id: submissionId,
     force_refresh: forceRefresh
   });
@@ -69,73 +69,73 @@ export const requestCodeDoctor = async (submissionId: number, forceRefresh: bool
 };
 
 export const fetchJobStatus = async (jobId: string): Promise<JobStatusResponseData> => {
-  const res = await axios.get(`${API_BASE_URL}/jobs/${jobId}`);
+  const res = await apiClient.get(`${API_BASE_URL}/jobs/${jobId}`);
   return res.data;
 };
 
 export const fetchFailedSubmissions = async (userId: number): Promise<FailedSubmissionItem[]> => {
-  const res = await axios.get(`${API_BASE_URL}/student/submissions/failed`, {
+  const res = await apiClient.get(`${API_BASE_URL}/student/submissions/failed`, {
     params: { user_id: userId }, timeout: 30_000,
   });
   return res.data;
 };
 
 export const fetchSubmissionDetail = async (submissionId: number): Promise<SubmissionDetailResponseData> => {
-  const res = await axios.get(`${API_BASE_URL}/student/submissions/${submissionId}/detail`);
+  const res = await apiClient.get(`${API_BASE_URL}/student/submissions/${submissionId}/detail`);
   return res.data;
 };
 
 export const fetchTeacherClasses = async (params: ClassListQuery, signal?: AbortSignal): Promise<ClassPageData> => {
-  const res = await axios.get<ClassPageData>(`${API_BASE_URL}/teacher/my-classes`, { params, signal });
+  const res = await apiClient.get<ClassPageData>(`${API_BASE_URL}/teacher/my-classes`, { params, signal });
   return res.data;
 };
 
 export const setClassStar = async (orgId: number, starred: boolean): Promise<ClassStarData> => {
   const url = `${API_BASE_URL}/teacher/classes/${orgId}/star`;
   const response = starred
-    ? await axios.put<ClassStarData>(url)
-    : await axios.delete<ClassStarData>(url);
+    ? await apiClient.put<ClassStarData>(url)
+    : await apiClient.delete<ClassStarData>(url);
   return response.data;
 };
 
 export const fetchClassHeatmap = async (orgId: number, timeRange: TimeRange = 'all'): Promise<ClassHeatmapResponseData> => {
-  const res = await axios.get(`${API_BASE_URL}/teacher/class/${orgId}/heatmap`, {
+  const res = await apiClient.get(`${API_BASE_URL}/teacher/class/${orgId}/heatmap`, {
     params: { time_range: timeRange }
   });
   return res.data;
 };
 
 export const searchStudents = async (query: string) => {
-  const res = await axios.get(`${API_BASE_URL}/teacher/students/search?q=${encodeURIComponent(query)}`);
+  const res = await apiClient.get(`${API_BASE_URL}/teacher/students/search?q=${encodeURIComponent(query)}`);
   return res.data;
 };
 
 export const fetchStudentDetail = async (studentId: number, timeRange: TimeRange = 'all'): Promise<StudentDetailResponseData> => {
-  const res = await axios.get(`${API_BASE_URL}/teacher/students/${studentId}/detail`, {
+  const res = await apiClient.get(`${API_BASE_URL}/teacher/students/${studentId}/detail`, {
     params: { time_range: timeRange }
   });
   return res.data;
 };
 
 export const fetchClassStudents = async (orgId: number): Promise<ClassStudentItemData[]> => {
-  const res = await axios.get(`${API_BASE_URL}/teacher/classes/${orgId}/students`);
+  const res = await apiClient.get(`${API_BASE_URL}/teacher/classes/${orgId}/students`);
   return res.data;
 };
 
 export const fetchRecentSubmissions = async (userId: number, onlyFailed: boolean = false, limit: number = 10): Promise<StudentRecentSubmissionData[]> => {
-  const res = await axios.get(`${API_BASE_URL}/student/submissions/recent`, {
+  const res = await apiClient.get(`${API_BASE_URL}/student/submissions/recent`, {
     params: { user_id: userId, only_failed: onlyFailed, limit }
   });
   return res.data;
 };
 
 export const fetchAutoTagStatus = async (): Promise<AutoTagStatusResponseData> => {
-  const res = await axios.get(`${API_BASE_URL}/admin/auto-tag/status`);
+  const res = await apiClient.get(`${API_BASE_URL}/admin/auto-tag/status`);
   return res.data;
 };
 
 export const runAutoTagBatch = async (batchSize: number = 10): Promise<AutoTagBatchRunResponseData> => {
-  const res = await axios.post(`${API_BASE_URL}/admin/auto-tag/run-batch`, {
+  const res = await apiClient.post(`${API_BASE_URL}/admin/auto-tag/run-batch`, {
     batch_size: batchSize
   });
   return res.data;
@@ -144,24 +144,24 @@ export const runAutoTagBatch = async (batchSize: number = 10): Promise<AutoTagBa
 
 // Virtual Class API
 export const getVirtualClassSessions = async (orgId: number) => {
-  const res = await axios.get(`${API_BASE_URL}/virtual-class/${orgId}/sessions`);
+  const res = await apiClient.get(`${API_BASE_URL}/virtual-class/${orgId}/sessions`);
   return res.data;
 };
 
 export const startVirtualClass = async (orgId: number, name?: string) => {
-  const res = await axios.post(`${API_BASE_URL}/virtual-class/${orgId}/start`, null, {
+  const res = await apiClient.post(`${API_BASE_URL}/virtual-class/${orgId}/start`, null, {
     params: { name }
   });
   return res.data;
 };
 
 export const stopVirtualClass = async (sessionId: number) => {
-  const res = await axios.post(`${API_BASE_URL}/virtual-class/sessions/${sessionId}/stop`);
+  const res = await apiClient.post(`${API_BASE_URL}/virtual-class/sessions/${sessionId}/stop`);
   return res.data;
 };
 
 export const fetchLiveSubmissions = async (sessionId: number, sinceId: number = 0, signal?: AbortSignal) => {
-  const res = await axios.get(`${API_BASE_URL}/virtual-class/sessions/${sessionId}/live-submissions`, {
+  const res = await apiClient.get(`${API_BASE_URL}/virtual-class/sessions/${sessionId}/live-submissions`, {
     params: { since_id: sinceId }, signal,
   });
   return res.data;

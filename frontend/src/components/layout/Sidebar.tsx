@@ -1,28 +1,23 @@
 import React from 'react';
-import { BarChart3, FileText, GraduationCap, Home, Presentation, Settings, ShieldCheck, type LucideIcon } from 'lucide-react';
+import { BarChart3, FileText, GraduationCap, Presentation, ShieldCheck, type LucideIcon } from 'lucide-react';
 import { Link, NavLink, useLocation } from 'react-router-dom';
 
 type NavigationItem = {
   to: string;
   label: string;
   icon: LucideIcon;
-  end?: boolean;
 };
 
 const primaryItems: NavigationItem[] = [
-  { to: '/', label: 'Trang chủ', icon: Home, end: true },
   { to: '/student/classes', label: 'Học sinh', icon: GraduationCap },
   { to: '/teacher/classes', label: 'Lớp học', icon: Presentation },
   { to: '/admin', label: 'Quản trị viên', icon: ShieldCheck },
 ];
 
-const settingsItem: NavigationItem = { to: '/settings', label: 'Cài đặt', icon: Settings };
-
 function NavigationLink({ item }: { item: NavigationItem }) {
   const Icon = item.icon;
   return <NavLink
     to={item.to}
-    end={item.end}
     className={({ isActive }) => `dashboard-nav-link${isActive ? ' dashboard-nav-link-active' : ''}`}
   >
     <Icon aria-hidden className="h-5 w-5 shrink-0" />
@@ -72,15 +67,11 @@ export function Sidebar() {
       <nav className="dashboard-sidebar-nav">
         <PrimaryNavigation />
       </nav>
-      <nav className="dashboard-sidebar-settings" aria-label="Thiết lập">
-        <NavigationLink item={settingsItem} />
-      </nav>
     </aside>
     <details className="dashboard-mobile-menu">
       <summary>Menu</summary>
       <nav aria-label="Điều hướng chính trên điện thoại">
         <PrimaryNavigation />
-        <NavigationLink item={settingsItem} />
       </nav>
     </details>
   </>;
