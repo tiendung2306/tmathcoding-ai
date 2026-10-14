@@ -1,6 +1,6 @@
 import { ClassListQuery, ClassSortField } from '../types';
 
-const sorts: ClassSortField[] = ['creation_date', 'name', 'member_count', 'id', 'last_session_at'];
+const sorts: ClassSortField[] = ['creation_date', 'name', 'member_count', 'id'];
 export function positiveId(value: string | null | undefined): number {
   if (!value || !/^[1-9]\d*$/.test(value) || !Number.isSafeInteger(Number(value))) throw new Response('Địa chỉ không hợp lệ.', { status: 404 });
   return Number(value);

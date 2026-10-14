@@ -3,27 +3,14 @@ import time
 from fastapi import APIRouter, Depends, HTTPException, Request
 
 from app.core.dashboard_auth import require_admin as require_dashboard_admin
-from app.core.database import get_db
 from app.core.dashboard_database import get_dashboard_db
-from app.models.dmoj import JudgeProfile
-from sqlalchemy import select
+from app.services.source_gateway import SourceGateway, get_source_gateway
 from app.schemas.skill_config import SkillConfigWrite, SkillDocument, SkillProposalReview
 from app.services import skill_config_service as service
 
 
-async def get_skill_user(account=Depends(require_dashboard_admin), source=Depends(get_db)):
-    profile = (await source.execute(select(JudgeProfile).where(
-        JudgeProfile.id == account.source_profile_id
-    ))).scalar_one_or_none()
-    if profile is None:
-        raise HTTPException(403, "Tài khoản chưa gắn với hồ sơ nguồn.")
-    return profile
-
-
-async def require_admin(user=Depends(get_skill_user)):
-    if not user.super_admin:
-        raise HTTPException(403, "Chỉ quản trị viên được cấu hình cây kỹ năng.")
-    return user
+async def require_admin(account=Depends(require_dashboard_admin)):
+    return account
 
 
 router = APIRouter(dependencies=[Depends(require_admin)])
@@ -32,24 +19,29 @@ _cancelled_runs = {}
 
 
 @router.get("")
-async def get_configuration(source=Depends(get_db), dashboard=Depends(get_dashboard_db)):
-    return await service.state(dashboard, source)
+async def get_configuration(account=Depends(require_admin), source: SourceGateway = Depends(get_source_gateway),
+                           dashboard=Depends(get_dashboard_db)):
+    return await service.state(dashboard, source, actor_profile_id=account.source_profile_id)
 
 
 @router.put("")
-async def save_configuration(payload: SkillConfigWrite, user=Depends(require_admin), source=Depends(get_db), dashboard=Depends(get_dashboard_db)):
-    return await service.write(dashboard, source, payload.revision, payload.document, user.id, True)
+async def save_configuration(payload: SkillConfigWrite, user=Depends(require_admin),
+                             source: SourceGateway = Depends(get_source_gateway), dashboard=Depends(get_dashboard_db)):
+    return await service.write(dashboard, source, payload.revision, payload.document,
+                               user.source_profile_id, True, actor_profile_id=user.source_profile_id)
 
 
 @router.post("/suggest")
-async def suggest(document: SkillDocument, request: Request, source=Depends(get_db), run_id: str | None = None, dashboard=Depends(get_dashboard_db)):
+async def suggest(document: SkillDocument, request: Request, user=Depends(require_admin),
+                  source: SourceGateway = Depends(get_source_gateway), run_id: str | None = None,
+                  dashboard=Depends(get_dashboard_db)):
     if run_id is not None and (not run_id or len(run_id) > 64):
         raise HTTPException(422, "ID lượt AI không hợp lệ.")
     if run_id in _cancelled_runs:
         raise HTTPException(499, "Đã dừng yêu cầu phân loại AI.")
     if run_id in _inferences:
         raise HTTPException(409, "Lượt AI đang xử lý.")
-    inference = asyncio.create_task(service.suggest(document, source))
+    inference = asyncio.create_task(service.suggest(document, source, actor_profile_id=user.source_profile_id))
     if run_id:
         _inferences[run_id] = inference
     async def watch_disconnect():
@@ -93,5 +85,7 @@ async def cancel_suggestion(run_id: str):
 
 
 @router.patch("/proposals")
-async def review_proposals(payload: SkillProposalReview, user=Depends(require_admin), source=Depends(get_db), dashboard=Depends(get_dashboard_db)):
-    return await service.review_proposals(dashboard, source, payload, user.id)
+async def review_proposals(payload: SkillProposalReview, user=Depends(require_admin),
+                           source: SourceGateway = Depends(get_source_gateway), dashboard=Depends(get_dashboard_db)):
+    return await service.review_proposals(dashboard, source, payload, user.source_profile_id,
+                                          actor_profile_id=user.source_profile_id)

@@ -9,7 +9,7 @@ type NavigationItem = {
 };
 
 const primaryItems: NavigationItem[] = [
-  { to: '/student/classes', label: 'Học sinh', icon: GraduationCap },
+  { to: '/student/students', label: 'Học sinh', icon: GraduationCap },
   { to: '/teacher/classes', label: 'Lớp học', icon: Presentation },
   { to: '/admin', label: 'Quản trị viên', icon: ShieldCheck },
 ];
@@ -56,7 +56,7 @@ function PrimaryNavigation() {
   return <>
     {primaryItems.map(item => <React.Fragment key={item.to}>
       <NavigationLink item={item} />
-      {item.to === '/student/classes' && <StudentDetailTabs />}
+      {item.to === '/student/students' && <StudentDetailTabs />}
     </React.Fragment>)}
   </>;
 }

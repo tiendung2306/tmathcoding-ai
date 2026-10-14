@@ -91,7 +91,7 @@ export const SubmissionDetailModal: React.FC<SubmissionDetailModalProps> = ({
       // 2. Asynchronous job started -> Poll every 2 seconds
       const jobId = initRes.job_id;
       let attempts = 0;
-      const maxAttempts = 60; // 120s max
+      const maxAttempts = 90; // 180s max for the local CPU model
 
       pollIntervalRef.current = setInterval(async () => {
         attempts += 1;

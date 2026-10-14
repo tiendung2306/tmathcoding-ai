@@ -10,7 +10,7 @@ export function Header({ account }: { account: AuthAccount }) {
     catch { setLogoutError(true); }
   };
   return <header className="dashboard-header">
-    <Link to="/student/classes" aria-label="tmath, về danh sách lớp" className="dashboard-brand">
+    <Link to="/student/students" aria-label="tmath, về danh sách học sinh" className="dashboard-brand">
       <img src="/tmath-logo.png" alt="" className="h-8 w-8 object-contain" />
       <span>tmath</span>
     </Link>

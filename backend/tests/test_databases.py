@@ -1,6 +1,7 @@
 import asyncio
 import json
 import unittest
+from types import SimpleNamespace
 from contextlib import asynccontextmanager
 from datetime import datetime
 from unittest.mock import AsyncMock, patch
@@ -13,14 +14,26 @@ from sqlalchemy.orm import Session
 
 from app.core.config import Settings
 from app.core.dashboard_database import DashboardBase
+from app.core.dashboard_database import get_dashboard_db
+from app.core.dashboard_auth import require_admin
 from app.core.database import Base
 from app.core.db_resources import ReadOnlySession
 from app.db.data_transfer import copy_table
+from app.db.offline_source_config import OfflineSourceSettings
 from app.db.migrations import ensure_schema_current, migration_config
 from app.models.class_preferences import ClassStar
 from app.models.dmoj import AuthUser, JudgeProblem, JudgeProblemGroup, JudgeProblemtype
 from app.models.ai_tag import JudgeProblemAiTag
 from app.services.auto_tag_service import AutoTagService, TagOutcome
+from app.services.source_gateway import (
+    SourceAnalyticsCatalog, SourceGroupProblemCount, SourceProblem, SourceProblemGroup,
+    SourceProblemGroupPage, SourceProblemPage, SourceTag, SourceTagPage, SourceTagProblemCount,
+)
+from app.services.source_gateway import get_source_gateway
+from app.api.v1.endpoints.admin import router as admin_router
+from app.services.auto_tag_service import auto_tag_service
+import httpx
+from fastapi import FastAPI
 from app.schemas.ai import AutoTagResult
 import app.models.dashboard
 from db_fixtures import create_source_tables
@@ -112,17 +125,23 @@ class DatabaseBoundaryTests(unittest.TestCase):
         self.assertTrue(all(foreign_key.column.table.name in DashboardBase.metadata.tables
                             for table in DashboardBase.metadata.tables.values() for foreign_key in table.foreign_keys))
 
-    def test_connections_have_independent_hosts_ports_credentials_and_safe_urls(self):
+    def test_runtime_settings_have_no_source_database_credentials(self):
         settings = Settings(_env_file=None, PROJECT_NAME="test", SOURCE_DB_HOST="source-server", SOURCE_DB_PORT=3306,
                             SOURCE_DB_USER="reader", SOURCE_DB_PASSWORD="source@password:/%", SOURCE_DB_NAME="source",
                             DASHBOARD_DB_HOST="dashboard-server", DASHBOARD_DB_PORT=3307, DASHBOARD_DB_USER="app",
                             DASHBOARD_DB_PASSWORD="dashboard@password:/%", DASHBOARD_DB_NAME="dashboard",
+                            SOURCE_API_BASE_URL="https://source.example/integration/v1", SOURCE_API_TOKEN="source-token",
                             DASHBOARD_MIGRATION_USER="migrator", DASHBOARD_MIGRATION_PASSWORD="migration-password")
-        self.assertEqual((settings.source_database_url.host, settings.source_database_url.port), ("source-server", 3306))
         self.assertEqual((settings.dashboard_database_url.host, settings.dashboard_database_url.port), ("dashboard-server", 3307))
         self.assertEqual(settings.dashboard_database_url.password, "dashboard@password:/%")
         self.assertEqual(settings.dashboard_migration_url.username, "migrator")
-        self.assertEqual(settings.source_database_url.password, "source@password:/%")
+        self.assertEqual(settings.SOURCE_API_BASE_URL, "https://source.example/integration/v1")
+        self.assertFalse(hasattr(settings, "SOURCE_DB_PASSWORD"))
+        self.assertFalse(hasattr(settings, "source_database_url"))
+        offline = OfflineSourceSettings(_env_file=None, SOURCE_DB_HOST="source-server", SOURCE_DB_PORT=3306,
+            SOURCE_DB_USER="reader", SOURCE_DB_PASSWORD="source@password:/%", SOURCE_DB_NAME="source")
+        self.assertEqual((offline.database_url.host, offline.database_url.password),
+                         ("source-server", "source@password:/%"))
 
     def test_source_orm_session_rejects_writes(self):
         engine = create_engine("sqlite://")
@@ -177,6 +196,49 @@ class AsyncSessionAdapter:
         self.session.rollback()
 
 
+class AutoTagGateway:
+    def __init__(self, session):
+        self.session = session
+        self.version = "test-catalog-1"
+
+    async def get_analytics_catalog(self, *, actor_profile_id, if_none_match=None):
+        problems = self.session.query(JudgeProblem).order_by(JudgeProblem.id).all()
+        tags = self.session.query(JudgeProblemtype).order_by(JudgeProblemtype.id).all()
+        groups = self.session.query(JudgeProblemGroup).order_by(JudgeProblemGroup.id).all()
+        return SourceAnalyticsCatalog(catalog_version=self.version, total_problem_count=len(problems),
+            tagged_problem_count=0,
+            tag_problem_counts=[SourceTagProblemCount(tag_id=row.id, distinct_problem_count=0) for row in tags],
+            group_problem_counts=[SourceGroupProblemCount(group_id=row.id, distinct_problem_count=0) for row in groups],
+            as_of=datetime.now()), None, False
+
+    async def list_tags(self, *, actor_profile_id, cursor=None, limit=100, if_none_match=None):
+        rows = self.session.query(JudgeProblemtype).order_by(JudgeProblemtype.id).all()
+        items = [SourceTag(tag_id=row.id, key=row.name or str(row.id),
+            title=row.full_name or row.name or str(row.id)) for row in rows]
+        return SourceTagPage(items=items, catalog_version=self.version), None, False
+
+    async def list_problem_groups(self, *, actor_profile_id, cursor=None, limit=100):
+        rows = self.session.query(JudgeProblemGroup).order_by(JudgeProblemGroup.id).all()
+        items = [SourceProblemGroup(group_id=row.id, key=row.name or str(row.id),
+            title=row.full_name or row.name or str(row.id)) for row in rows]
+        return SourceProblemGroupPage(items=items)
+
+    async def list_problems(self, *, actor_profile_id, cursor=None, after_id=None, limit=100,
+                            q=None, tag_id=None, group_id=None, ids=None, fields="summary"):
+        rows = self.session.query(JudgeProblem).order_by(JudgeProblem.id).all()
+        if ids is not None:
+            rows = [row for row in rows if row.id in ids]
+        offset = int(cursor or 0)
+        selected = rows[offset:offset + limit]
+        items = [SourceProblem(problem_id=row.id, code=row.code, title=row.name,
+            description=row.description if fields == "full" else None, points=row.points,
+            time_limit=row.time_limit, memory_limit=row.memory_limit, group_id=row.group_id, version=1)
+            for row in selected]
+        more = offset + len(selected) < len(rows)
+        return SourceProblemPage(items=items, total=len(rows), next_cursor=str(offset + len(selected)) if more else None,
+            has_more=more, catalog_version=self.version)
+
+
 class AutoTagBoundaryTests(unittest.IsolatedAsyncioTestCase):
     async def test_worker_writes_dashboard_and_skips_already_tagged_source_problems(self):
         source = create_engine("sqlite://")
@@ -188,25 +250,58 @@ class AutoTagBoundaryTests(unittest.IsolatedAsyncioTestCase):
                 connection.execute(insert(JudgeProblem.__table__), dict(id=1, code="p1", name="Bài toán 1"))
                 connection.execute(insert(JudgeProblemtype.__table__), dict(id=1, name="tag", full_name="Chủ đề 1"))
                 connection.execute(insert(JudgeProblemGroup.__table__), dict(id=4, name="A", full_name="Ghi nhớ"))
-            with ReadOnlySession(source) as read, Session(dashboard) as write:
-                @asynccontextmanager
-                async def source_session():
-                    yield AsyncSessionAdapter(read)
+            with Session(source) as read, Session(dashboard) as write:
                 @asynccontextmanager
                 async def dashboard_session():
                     yield AsyncSessionAdapter(write)
+                gateway = AutoTagGateway(read)
                 result = AutoTagResult(problem_id=1, primary_tag_id=1, secondary_tag_ids=[],
                                        bloom_group_id=4, reasoning="Test kết nối")
                 service = AutoTagService()
                 service.tag_problem = AsyncMock(return_value=TagOutcome(result, "llm", result))
-                with patch("app.services.auto_tag_service.AsyncSessionLocal", source_session), \
-                     patch("app.services.auto_tag_service.DashboardSessionLocal", dashboard_session), \
+                with patch("app.services.auto_tag_service.DashboardSessionLocal", dashboard_session), \
                      patch("app.services.auto_tag_service.asyncio.sleep", new=AsyncMock()):
-                    await service.run_batch_process(1)
-                    await service.run_batch_process(1)
+                    await service.run_batch_process(gateway, actor_profile_id=7, batch_size=1)
+                    await service.run_batch_process(gateway, actor_profile_id=7, batch_size=1)
                 service.tag_problem.assert_awaited_once()
                 self.assertEqual(write.execute(select(JudgeProblemAiTag.problem_id)).scalars().all(), [1])
                 self.assertEqual(read.execute(select(JudgeProblem.id)).scalars().all(), [1])
+        finally:
+            source.dispose()
+            dashboard.dispose()
+
+
+class AutoTagAdminRouteTests(unittest.IsolatedAsyncioTestCase):
+    async def test_routes_require_dashboard_admin_and_use_source_gateway(self):
+        source = create_engine("sqlite://")
+        dashboard = create_engine("sqlite://")
+        try:
+            create_source_tables(source, JudgeProblem, JudgeProblemtype, JudgeProblemGroup)
+            JudgeProblemAiTag.__table__.create(dashboard)
+            with Session(source) as read, Session(dashboard) as write:
+                read.execute(insert(JudgeProblem.__table__), dict(id=1, code="p1", name="P"))
+                read.commit()
+                gateway = AutoTagGateway(read)
+                app = FastAPI()
+                app.include_router(admin_router, prefix="/admin")
+
+                async def dashboard_session():
+                    yield AsyncSessionAdapter(write)
+
+                app.dependency_overrides[get_dashboard_db] = dashboard_session
+                async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
+                    unauthorized = await client.get("/admin/auto-tag/status")
+                    self.assertEqual(unauthorized.status_code, 401)
+                    app.dependency_overrides[require_admin] = lambda: SimpleNamespace(source_profile_id=7)
+                    app.dependency_overrides[get_source_gateway] = lambda: gateway
+                    status = await client.get("/admin/auto-tag/status")
+                    self.assertEqual(status.status_code, 200, status.text)
+                    self.assertEqual(status.json()["total_problems"], 1)
+                    with patch.object(auto_tag_service, "run_batch_process", new=AsyncMock()) as worker:
+                        started = await client.post("/admin/auto-tag/run-batch", json={"batch_size": 1})
+                        self.assertEqual(started.status_code, 200, started.text)
+                        await asyncio.sleep(0)
+                        worker.assert_awaited_once_with(gateway, actor_profile_id=7, batch_size=1)
         finally:
             source.dispose()
             dashboard.dispose()
@@ -225,7 +320,7 @@ class AutoTagBoundaryTests(unittest.IsolatedAsyncioTestCase):
                 for problem_id in (1, 999):
                     write.add(JudgeProblemAiTag(problem_id=problem_id, primary_tag_id=1, bloom_group_id=4))
                 write.commit()
-                result = await AutoTagService().get_tagging_status(AsyncSessionAdapter(read), AsyncSessionAdapter(write))
+                result = await AutoTagService().get_tagging_status(AutoTagGateway(read), AsyncSessionAdapter(write), actor_profile_id=7)
                 self.assertEqual(result["total_problems"], 1)
                 self.assertEqual(result["tagged_problems"], 1)
                 self.assertEqual(result["progress_percentage"], 100.0)
@@ -233,6 +328,45 @@ class AutoTagBoundaryTests(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual((known["problem_code"], known["primary_tag_name"], known["bloom_group_name"]),
                                  ("p1", "Chủ đề 1", "Ghi nhớ"))
                 self.assertEqual(len(result["recent_tags"]), 2)
+        finally:
+            source.dispose()
+            dashboard.dispose()
+
+    async def test_invalid_llm_ids_only_save_validated_heuristic_fallback(self):
+        source = create_engine("sqlite://")
+        dashboard = create_engine("sqlite://")
+        try:
+            create_source_tables(source, JudgeProblem, JudgeProblemtype, JudgeProblemGroup)
+            JudgeProblemAiTag.__table__.create(dashboard)
+            with source.begin() as connection:
+                connection.execute(insert(JudgeProblem.__table__), dict(id=1, code="p1", name="P"))
+                connection.execute(insert(JudgeProblemtype.__table__), dict(id=1, name="tag", full_name="Topic"))
+                connection.execute(insert(JudgeProblemGroup.__table__), dict(id=4, name="A", full_name="Remember"))
+            with Session(source) as read, Session(dashboard) as write:
+                @asynccontextmanager
+                async def dashboard_session():
+                    yield AsyncSessionAdapter(write)
+
+                gateway = AutoTagGateway(read)
+                invalid_fallback = AutoTagResult(problem_id=1, primary_tag_id=99, secondary_tag_ids=[],
+                    bloom_group_id=13, reasoning="bad fallback")
+                valid_fallback = AutoTagResult(problem_id=1, primary_tag_id=1, secondary_tag_ids=[],
+                    bloom_group_id=4, reasoning="verified fallback")
+                invalid_llm = AutoTagResult(problem_id=1, primary_tag_id=98, secondary_tag_ids=[],
+                    bloom_group_id=12, reasoning="bad model result")
+                service = AutoTagService()
+                service.tag_problem = AsyncMock(side_effect=[
+                    TagOutcome(invalid_llm, "llm", invalid_fallback),
+                    TagOutcome(invalid_llm, "llm", valid_fallback),
+                ])
+                with patch("app.services.auto_tag_service.DashboardSessionLocal", dashboard_session), \
+                     patch("app.services.auto_tag_service.asyncio.sleep", new=AsyncMock()):
+                    await service.run_batch_process(gateway, actor_profile_id=7, batch_size=1)
+                    self.assertEqual(write.execute(select(JudgeProblemAiTag.problem_id)).scalars().all(), [])
+                    await service.run_batch_process(gateway, actor_profile_id=7, batch_size=1)
+                saved = write.execute(select(JudgeProblemAiTag)).scalars().one()
+                self.assertEqual((saved.problem_id, saved.primary_tag_id, saved.bloom_group_id), (1, 1, 4))
+                self.assertEqual(saved.model, "heuristic-fallback")
         finally:
             source.dispose()
             dashboard.dispose()

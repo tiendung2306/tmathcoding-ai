@@ -7,6 +7,7 @@ import { LoginPage } from './pages/LoginPage';
 import { getAccount, type AuthAccount } from './services/auth';
 import { ClassTable } from './components/ClassTable';
 import { ClassStudentsGrid } from './components/ClassStudentsGrid';
+import { StudentsPage } from './pages/StudentsPage';
 import { VirtualClassSessions } from './components/VirtualClassSessions';
 import { ClassListQuery, ClassStudentItemData, ClassPageData } from './types';
 import { classQuery, classSearch, positiveId, rosterUrl, studentUrl } from './lib/navigation';
@@ -33,7 +34,7 @@ function RouteError() {
     <div className="mt-5 flex flex-wrap gap-3">
       {status === 401 && <Link to={`/?next=${encodeURIComponent(pathname)}`} className="skill-primary">Đăng nhập</Link>}
       {!unavailable && !forbidden && <button disabled={revalidator.state !== 'idle'} onClick={() => revalidator.revalidate()} className="min-h-11 px-4 rounded-md bg-brand-primary text-white">{revalidator.state !== 'idle' ? 'Đang thử lại...' : 'Thử lại'}</button>}
-      <Link to={pathname.startsWith('/teacher') ? '/teacher/classes' : '/student/classes'} className="min-h-11 px-4 inline-flex items-center rounded-md border border-border">Về danh sách lớp</Link>
+      <Link to={pathname.startsWith('/teacher') ? '/teacher/classes' : '/student/students'} className="min-h-11 px-4 inline-flex items-center rounded-md border border-border">Về danh sách</Link>
       <Link to="/admin" className="min-h-11 px-3 inline-flex items-center underline">Về bảng điều khiển</Link>
     </div>
   </section>;
@@ -107,20 +108,26 @@ async function guardedRouteRequest<T>(request: Request, load: () => Promise<T>):
 }
 
 const classesLoader = ({ request }: { request: Request }) => guardedRouteRequest(request, async () => (await apiClient.get('/api/v1/teacher/my-classes', { params: classQuery(new URL(request.url).searchParams), signal: request.signal })).data);
+const studentsLoader = ({ request }: { request: Request }) => guardedRouteRequest(request, async () => {
+  const params = new URL(request.url).searchParams;
+  const page = Math.max(1, Number.parseInt(params.get('page') || '1', 10) || 1);
+  return (await apiClient.get('/api/v1/teacher/my-students', { params: { page, q: (params.get('q') || '').trim().slice(0, 128) }, signal: request.signal })).data;
+});
 export const router = createBrowserRouter([
   { path: '/', loader: async () => {
       try {
         await getAccount();
-        return redirect('/student/classes');
+        return redirect('/student/students');
       } catch (error) {
         if (axios.isAxiosError(error) && error.response?.status === 401) return null;
         throw error;
       }
     }, element: <LoginPage />, errorElement: <RouteError /> },
   { path: '/login', loader: ({ request }) => redirect(`/${new URL(request.url).search}`) },
-  { path: '/settings', loader: () => redirect('/student/classes') },
+  { path: '/settings', loader: () => redirect('/student/students') },
   { id: 'app', loader: ({ request }) => requireReadyAccount(request), element: <App />, errorElement: <RouteError />, children: [
-    { path: '/student/classes', loader: classesLoader, element: <ClassesPage area="student" />, errorElement: <RouteError />, handle: { title: 'Danh sách lớp' } satisfies PageHandle },
+    { path: '/student/classes', loader: () => redirect('/student/students'), element: <StudentsPage /> },
+    { path: '/student/students', loader: studentsLoader, element: <StudentsPage />, errorElement: <RouteError />, handle: { title: 'Học sinh' } satisfies PageHandle },
     { path: '/teacher/classes', loader: classesLoader, element: <ClassesPage area="teacher" />, errorElement: <RouteError />, handle: { title: 'Lớp học ảo' } satisfies PageHandle },
     { path: '/student/classes/:classId/students', element: <RosterPage />, errorElement: <RouteError />,
       shouldRevalidate: ({ currentParams, nextParams, defaultShouldRevalidate, currentUrl, nextUrl }) => currentParams.classId !== nextParams.classId || (currentUrl.search === nextUrl.search && defaultShouldRevalidate),

@@ -3,7 +3,6 @@ import type { SkillPage, SkillProblem, SkillProblemDetail } from '../types';
 import {
   TimeRange,
   SkillTreeResponseData,
-  CodeDoctorResponseData,
   ClassHeatmapResponseData,
   TagAnalyticsResponseData,
   AICommentaryResponseData,
@@ -160,9 +159,9 @@ export const stopVirtualClass = async (sessionId: number) => {
   return res.data;
 };
 
-export const fetchLiveSubmissions = async (sessionId: number, sinceId: number = 0, signal?: AbortSignal) => {
+export const fetchLiveSubmissions = async (sessionId: number, cursor: string | null = null, signal?: AbortSignal) => {
   const res = await apiClient.get(`${API_BASE_URL}/virtual-class/sessions/${sessionId}/live-submissions`, {
-    params: { since_id: sinceId }, signal,
+    params: cursor ? { cursor } : {}, signal,
   });
   return res.data;
 };

@@ -2,94 +2,123 @@ import asyncio
 import json
 import logging
 import hashlib
+from collections import OrderedDict
 from app.core.config import settings
 from app.services.source_cleaner import prepare_source, SOURCE_POLICY_VERSION
 from app.services.source_context import build_source_context, PROMPT_POLICY_VERSION
-from typing import Dict, List, Optional
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
-from app.core.database import AsyncSessionLocal
+from typing import List
 from app.core.redis import cache_get, cache_set, cache_delete
 from app.core.job_manager import job_manager
-from app.models.dmoj import (
-    JudgeSubmission,
-    JudgeSubmissionsource,
-    JudgeProblem,
-    JudgeProfile,
-    JudgeLanguage,
-    JudgeSubmissionTestcase,
-)
+from app.services.source_gateway import SourceGateway, get_source_gateway_client
 from app.schemas.ai import CodeDoctorDiagnosis, CodeDoctorResponse
 from app.schemas.student import FailedSubmissionItem, TestCaseDetailItem, SubmissionDetailResponse
 from app.schemas.jobs import JobCreateResponse, JobStatus, JobType
 from app.core.llm_adapter import llm_adapter
-from fastapi import HTTPException
 
 logger = logging.getLogger(__name__)
+MEMORY_CACHE_MAX_ITEMS = 256
 
 class CodeDoctorService:
     @staticmethod
-    def _cache_key(submission_id: int) -> str:
-        policy = f"doctor-v2:{SOURCE_POLICY_VERSION}:{PROMPT_POLICY_VERSION}:{settings.LLM_MODEL}:{settings.LLM_CONTEXT_WINDOW}"
+    def _fallback_advice(verdict: str, problem_title: str, problem_code: str,
+                         time_limit: float, memory_limit: float) -> str:
+        if verdict == "TLE":
+            return f"Mã nguồn của bạn vượt quá giới hạn thời gian {time_limit}s trên bài toán {problem_title} ({problem_code}). Thuật toán hiện tại có độ phức tạp tính toán lớn so với ràng buộc dữ liệu đầu vào của đề bài; bạn hãy rà soát lại các vòng lặp lồng nhau hoặc các thao tác lặp lại không cần thiết để tối ưu sang cấu trúc dữ liệu hoặc giải thuật có độ phức tạp thấp hơn."
+        if verdict == "RTE":
+            return f"Chương trình gặp lỗi thực thi (Runtime Error) khi chạy các test case của bài toán {problem_title}. Lỗi này thường xuất phát từ việc truy cập chỉ số mảng vượt quá phạm vi khai báo, phép chia cho 0, hoặc gọi đệ quy quá sâu gây tràn bộ nhớ stack ({memory_limit}MB); bạn hãy kiểm tra lại kích thước mảng và điều kiện biên tại các vòng lặp."
+        if verdict == "WA":
+            return f"Chương trình chưa cho kết quả chính xác trên các trường hợp kiểm thử của bài toán {problem_title}. Kết quả tính toán thực tế của mã nguồn không khớp với đáp án mẫu trên một số test case; bạn hãy kiểm tra kỹ điều kiện logic xử lý rẽ nhánh và thử chạy tay từng bước với test case nhỏ của đề bài để xác định giá trị biến bị tính sai."
+        return f"Bài nộp chưa đạt kết quả tối đa ({verdict}) cho bài toán {problem_title}. Bạn hãy đối chiếu lại toàn bộ luồng xử lý chính với các ràng buộc trong đề bài để hoàn thiện thuật toán."
+
+    @staticmethod
+    def _cache_key(submission_id: int, input_fingerprint: str = "") -> str:
+        policy = f"doctor-v3:{SOURCE_POLICY_VERSION}:{PROMPT_POLICY_VERSION}:{settings.LLM_MODEL}:{settings.LLM_CONTEXT_WINDOW}"
         namespace = hashlib.sha256(policy.encode()).hexdigest()[:16]
-        return f"tmath:code_doctor:{namespace}:submission:{submission_id}"
+        return f"tmath:code_doctor:{namespace}:submission:{submission_id}:{input_fingerprint}"
+
+    @staticmethod
+    def _input_fingerprint(submission, problem) -> str:
+        """Hash all provider inputs that can change a diagnosis; never persist their contents."""
+        payload = {
+            "submission": {
+                "version": getattr(submission, "version", None),
+                "updated_at": getattr(submission, "updated_at", None).isoformat()
+                    if getattr(submission, "updated_at", None) else None,
+                "result": getattr(submission, "result", None),
+                "status": getattr(submission, "status", None),
+                "points": getattr(submission, "points", None),
+                "time": getattr(submission, "time", None),
+                "memory": getattr(submission, "memory", None),
+                "submitted_at": getattr(submission, "submitted_at", None).isoformat()
+                    if getattr(submission, "submitted_at", None) else None,
+                "language": {
+                    "id": getattr(getattr(submission, "language", None), "id", None),
+                    "key": getattr(getattr(submission, "language", None), "key", None),
+                    "name": getattr(getattr(submission, "language", None), "name", None),
+                    "common_name": getattr(getattr(submission, "language", None), "common_name", None),
+                },
+                "source_code": getattr(submission, "source_code", None),
+                "testcases": [tc.model_dump(mode="json") for tc in getattr(submission, "testcases", [])],
+            },
+            "problem": {
+                "version": getattr(problem, "version", None),
+                "updated_at": getattr(problem, "updated_at", None).isoformat()
+                    if getattr(problem, "updated_at", None) else None,
+                "title": getattr(problem, "title", None),
+                "name": getattr(problem, "name", None),
+                "code": getattr(problem, "code", None),
+                "description": getattr(problem, "description", None),
+                "time_limit": getattr(problem, "time_limit", None),
+                "memory_limit": getattr(problem, "memory_limit", None),
+                "points": getattr(problem, "points", None),
+            },
+        }
+        encoded = json.dumps(payload, sort_keys=True, ensure_ascii=False, separators=(",", ":"))
+        return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
 
     def __init__(self):
-        # In-memory fallback cache (submission_id -> CodeDoctorResponse)
-        self._memory_cache: Dict[int, CodeDoctorResponse] = {}
+        # Bounded LRU fallback; Redis remains the durable short-lived cache.
+        self._memory_cache: OrderedDict[str, CodeDoctorResponse] = OrderedDict()
+
+    def _store_memory_cache(self, key: str, response: CodeDoctorResponse) -> None:
+        self._memory_cache.pop(key, None)
+        self._memory_cache[key] = response
+        while len(self._memory_cache) > MEMORY_CACHE_MAX_ITEMS:
+            self._memory_cache.popitem(last=False)
+
+    def _get_memory_cache(self, key: str) -> CodeDoctorResponse | None:
+        response = self._memory_cache.get(key)
+        if response is not None:
+            self._memory_cache.move_to_end(key)
+        return response
 
     async def _diagnose_submission_core(
-        self, submission_id: int, db: AsyncSession
+        self, submission_id: int, source: SourceGateway, actor_profile_id: int,
+        submission=None,
     ) -> CodeDoctorResponse:
-        redis_key = self._cache_key(submission_id)
-
-        # 1. Fetch submission details
-        sub_stmt = select(JudgeSubmission).where(JudgeSubmission.id == submission_id)
-        sub_res = await db.execute(sub_stmt)
-        submission = sub_res.scalar_one_or_none()
-        
-        if not submission:
-            raise HTTPException(status_code=404, detail=f"Submission {submission_id} not found.")
-
-        # 2. Fetch source code
-        src_stmt = select(JudgeSubmissionsource).where(JudgeSubmissionsource.submission_id == submission_id)
-        src_res = await db.execute(src_stmt)
-        source_obj = src_res.scalar_one_or_none()
-        source_code = source_obj.source if source_obj else "// No source code available"
-
-        # 3. Fetch problem info
-        prob_stmt = select(JudgeProblem).where(JudgeProblem.id == submission.problem_id)
-        prob_res = await db.execute(prob_stmt)
-        problem = prob_res.scalar_one_or_none()
-        problem_title = (problem.name or "Bài toán") if problem else "Bài toán"
-        problem_code = (problem.code or f"P{submission.problem_id}") if problem else f"P{submission.problem_id}"
-        problem_desc = (problem.description or "") if problem else ""
-        time_limit = problem.time_limit if problem and problem.time_limit else 1.0
-        memory_limit = problem.memory_limit if problem and problem.memory_limit else 256
-        problem_points = problem.points if problem and problem.points else 100.0
-
-        # 4. Fetch programming language
-        language_name = "C++"
-        language_key = "unknown"
-        if submission.language_id:
-            lang_stmt = select(JudgeLanguage).where(JudgeLanguage.id == submission.language_id)
-            lang_res = await db.execute(lang_stmt)
-            lang_obj = lang_res.scalar_one_or_none()
-            if lang_obj:
-                language_name = lang_obj.name or lang_obj.common_name or "C++"
-                language_key = lang_obj.key or "unknown"
+        # Source code and testcase access are checked by the provider on every request.
+        submission = submission or await source.get_submission(
+            submission_id, actor_profile_id=actor_profile_id,
+            include_source=True, include_testcases=True,
+        )
+        problem = await source.get_problem(submission.problem_id, actor_profile_id=actor_profile_id)
+        redis_key = self._cache_key(submission_id, self._input_fingerprint(submission, problem))
+        source_code = submission.source_code or "// Không có mã nguồn lưu trữ"
+        problem_title = problem.title or problem.name or "Bài toán"
+        problem_code = problem.code or f"P{submission.problem_id}"
+        problem_desc = problem.description or ""
+        time_limit = problem.time_limit or 1.0
+        memory_limit = problem.memory_limit or 256
+        problem_points = problem.points or 100.0
+        language_name = (
+            submission.language.name or submission.language.common_name or "C++"
+            if submission.language else "C++"
+        )
+        language_key = submission.language.key or "unknown" if submission.language else "unknown"
 
         prepared = await asyncio.to_thread(prepare_source, source_code, language_key)
 
-        # 5. Fetch failed test cases details from judge_submissiontestcase
-        tc_stmt = (
-            select(JudgeSubmissionTestcase)
-            .where(JudgeSubmissionTestcase.submission_id == submission_id)
-            .order_by(JudgeSubmissionTestcase.case.asc())
-            .limit(15)
-        )
-        tc_res = await db.execute(tc_stmt)
-        all_testcases = tc_res.scalars().all()
+        all_testcases = submission.testcases[:15]
 
         tc_summary_parts = []
         if all_testcases:
@@ -113,12 +142,11 @@ class CodeDoctorService:
                     tc_summary_parts.append(f"  + Test #{tc.case} [{tc.status}]: {', '.join(details) if details else 'Lỗi'}")
         tc_summary = "\n".join(tc_summary_parts) if tc_summary_parts else "- Không có chi tiết từng test case."
 
-        # 6. Construct High-Quality Single-Paragraph Prompt
         system_prompt = (
             "Bạn là Huấn luyện viên Tin học Lập trình Thi đấu trên hệ thống tmath.\n"
             "Nhiệm vụ: Phân tích trực tiếp mã nguồn của học sinh dựa trên đề bài, giới hạn thời gian/bộ nhớ và test case bị lỗi để chỉ ra chính xác nguyên nhân lỗi và cách khắc phục.\n\n"
             "QUY TẮC BẮT BUỘC:\n"
-            "1. Viết DUY NHẤT 1 ĐOẠN VĂN LIỀN MẠCH (từ 3 đến 5 câu), không xuống dòng.\n"
+            "1. Viết DUY NHẤT 1 ĐOẠN VĂN LIỀN MẠCH (từ 3 đến 5 câu, tối đa 100 từ), không xuống dòng.\n"
             "2. TUYỆT ĐỐI KHÔNG chia mục, không gạch đầu dòng, không dùng tiêu đề.\n"
             "3. TUYỆT ĐỐI KHÔNG dùng câu hỏi rập khuôn vô nghĩa như 'Bạn đã kiểm tra các trường hợp biên đặc biệt chưa?'. Lời nhận xét PHẢI ĐI THẲNG vào chi tiết cụ thể:\n"
             "   - Chỉ rõ tên biến, hàm, thuật toán hoặc vị trí logic trong code đang gây ra lỗi.\n"
@@ -137,7 +165,7 @@ class CodeDoctorService:
             f"{tc_summary}\n\n"
         )
 
-        context = build_source_context(prepared, system_prompt, user_prompt, settings.LLM_CONTEXT_WINDOW, 450)
+        context = build_source_context(prepared, system_prompt, user_prompt, settings.LLM_CONTEXT_WINDOW, 280)
         user_prompt += context.text
         logger.info("Code Doctor source id=%s bytes=%s removed=%s complete=%s warnings=%s", submission_id, prepared.original_bytes, prepared.removed_comment_bytes, context.is_complete, context.warnings)
 
@@ -156,7 +184,6 @@ class CodeDoctorService:
             cat = verdict
 
         used_fallback = False
-        # 7. Call direct text generation (single natural paragraph)
         try:
             if not context.text:
                 raise ValueError("No source context fits the model window")
@@ -164,15 +191,15 @@ class CodeDoctorService:
                 llm_adapter.generate_text(
                     prompt=user_prompt,
                     system_prompt=system_prompt,
-                    max_tokens=450,
+                    max_tokens=280,
                     temperature=0.2,
-                    timeout_seconds=90.0,
+                    timeout_seconds=145.0,
+                    reasoning_effort=("none" if settings.LLM_PROVIDER in ("openai_compatible", "ollama")
+                                      and "ollama" in settings.LLM_BASE_URL else None),
                 ),
-                timeout=90.0
+                timeout=145.0
             )
-            # Normalize into a clean single paragraph
             lines = [line.strip() for line in raw_advice.split("\n") if line.strip()]
-            # Remove any artificial labels like 'Nhận xét:' or bullets
             clean_lines = []
             for l in lines:
                 cleaned = l.lstrip("#*-0123456789. ")
@@ -184,17 +211,11 @@ class CodeDoctorService:
             if not advice_paragraph:
                 advice_paragraph = raw_advice.strip()
 
-            # Ensure advice is not empty or too short
             if not advice_paragraph or len(advice_paragraph.strip()) < 15:
                 used_fallback = True
-                if verdict == "TLE":
-                    advice_paragraph = f"Mã nguồn của bạn vượt quá giới hạn thời gian {time_limit}s trên bài toán {problem_title} ({problem_code}). Thuật toán hiện tại có độ phức tạp tính toán lớn so với ràng buộc dữ liệu đầu vào của đề bài; bạn hãy rà soát lại các vòng lặp lồng nhau hoặc các thao tác lặp lại không cần thiết để tối ưu sang cấu trúc dữ liệu hoặc giải thuật có độ phức tạp thấp hơn."
-                elif verdict == "RTE":
-                    advice_paragraph = f"Chương trình gặp lỗi thực thi (Runtime Error) khi chạy các test case của bài toán {problem_title}. Lỗi này thường xuất phát từ việc truy cập chỉ số mảng vượt quá phạm vi khai báo, phép chia cho 0, hoặc gọi đệ quy quá sâu gây tràn bộ nhớ stack ({memory_limit}MB); bạn hãy kiểm tra lại kích thước mảng và điều kiện biên tại các vòng lặp."
-                elif verdict == "WA":
-                    advice_paragraph = f"Chương trình chưa cho kết quả chính xác trên các trường hợp kiểm thử của bài toán {problem_title}. Kết quả tính toán thực tế của mã nguồn không khớp với đáp án mẫu trên một số test case; bạn hãy kiểm tra kỹ điều kiện logic xử lý rẽ nhánh và thử chạy tay từng bước với test case nhỏ của đề bài để xác định giá trị biến bị tính sai."
-                else:
-                    advice_paragraph = f"Bài nộp chưa đạt kết quả tối đa ({verdict}) cho bài toán {problem_title}. Bạn hãy đối chiếu lại toàn bộ luồng xử lý chính với các ràng buộc trong đề bài để hoàn thiện thuật toán."
+                advice_paragraph = self._fallback_advice(
+                    verdict, problem_title, problem_code, time_limit, memory_limit,
+                )
 
             diagnosis = CodeDoctorDiagnosis(
                 error_category=cat,
@@ -204,14 +225,9 @@ class CodeDoctorService:
         except Exception as e:
             used_fallback = True
             logger.warning("Code Doctor LLM failed: %s: %s. Using fallback.", type(e).__name__, e)
-            if verdict == "TLE":
-                fallback_advice = f"Mã nguồn của bạn vượt quá giới hạn thời gian {time_limit}s trên bài toán {problem_title} ({problem_code}). Thuật toán hiện tại có độ phức tạp tính toán lớn so với ràng buộc dữ liệu đầu vào của đề bài; bạn hãy rà soát lại các vòng lặp lồng nhau hoặc các thao tác lặp lại không cần thiết để tối ưu sang cấu trúc dữ liệu hoặc giải thuật có độ phức tạp thấp hơn."
-            elif verdict == "RTE":
-                fallback_advice = f"Chương trình gặp lỗi thực thi (Runtime Error) khi chạy các test case của bài toán {problem_title}. Lỗi này thường xuất phát từ việc truy cập chỉ số mảng vượt quá phạm vi khai báo, phép chia cho 0, hoặc gọi đệ quy quá sâu gây tràn bộ nhớ stack ({memory_limit}MB); bạn hãy kiểm tra lại kích thước mảng và điều kiện biên tại các vòng lặp."
-            elif verdict == "WA":
-                fallback_advice = f"Chương trình chưa cho kết quả chính xác trên các trường hợp kiểm thử của bài toán {problem_title}. Kết quả tính toán thực tế của mã nguồn không khớp với đáp án mẫu trên một số test case; bạn hãy kiểm tra kỹ điều kiện logic xử lý rẽ nhánh và thử chạy tay từng bước với test case nhỏ của đề bài để xác định giá trị biến bị tính sai."
-            else:
-                fallback_advice = f"Bài nộp chưa đạt kết quả tối đa ({verdict}) cho bài toán {problem_title}. Bạn hãy đối chiếu lại toàn bộ luồng xử lý chính với các ràng buộc trong đề bài để hoàn thiện thuật toán."
+            fallback_advice = self._fallback_advice(
+                verdict, problem_title, problem_code, time_limit, memory_limit,
+            )
 
             diagnosis = CodeDoctorDiagnosis(
                 error_category=cat,
@@ -225,7 +241,7 @@ class CodeDoctorService:
 
         res = CodeDoctorResponse(
             submission_id=submission_id,
-            user_id=submission.user_id,
+            user_id=submission.profile_id,
             problem_name=problem_title,
             diagnosis=diagnosis
         )
@@ -233,27 +249,36 @@ class CodeDoctorService:
         # A temporary model failure must not lock in fallback advice for a week.
         await cache_set(redis_key, res.model_dump_json(), expire=300 if used_fallback else 7 * 86400)
         if used_fallback:
-            self._memory_cache.pop(submission_id, None)
+            self._memory_cache.pop(redis_key, None)
         else:
-            self._memory_cache[submission_id] = res
+            self._store_memory_cache(redis_key, res)
 
         return res
 
-    async def _execute_diagnose(self, submission_id: int) -> dict:
+    async def _execute_diagnose(self, submission_id: int, actor_profile_id: int) -> dict:
         """Background executor run by LLMJobManager inside concurrency Semaphore."""
-        async with AsyncSessionLocal() as session:
-            res = await self._diagnose_submission_core(submission_id, session)
-            return res.model_dump()
+        res = await self._diagnose_submission_core(
+            submission_id, get_source_gateway_client(), actor_profile_id,
+        )
+        return res.model_dump()
 
     async def diagnose_submission_async(
-        self, submission_id: int, force_refresh: bool = False
+        self, submission_id: int, source: SourceGateway, actor_profile_id: int,
+        force_refresh: bool = False,
     ) -> JobCreateResponse:
         """Asynchronous non-blocking entry point: returns job_id in ~10ms or cached result in ~1ms."""
-        redis_key = self._cache_key(submission_id)
+        # Validate both submission visibility and the separate source/testcase scopes
+        # before returning any cached diagnosis or enqueueing a worker.
+        submission = await source.get_submission(
+            submission_id, actor_profile_id=actor_profile_id,
+            include_source=True, include_testcases=True,
+        )
+        problem = await source.get_problem(submission.problem_id, actor_profile_id=actor_profile_id)
+        redis_key = self._cache_key(submission_id, self._input_fingerprint(submission, problem))
 
         if force_refresh:
             await cache_delete(redis_key)
-            self._memory_cache.pop(submission_id, None)
+            self._memory_cache.pop(redis_key, None)
         else:
             cached_json = await cache_get(redis_key)
             if cached_json:
@@ -268,22 +293,24 @@ class CodeDoctorService:
                 except Exception as e:
                     logger.warning(f"Failed to parse cached JSON for '{redis_key}': {e}")
 
-            if submission_id in self._memory_cache:
+            memory_result = self._get_memory_cache(redis_key)
+            if memory_result is not None:
                 logger.info(f"In-memory Cache HIT for Code Doctor key '{submission_id}'")
                 return JobCreateResponse(
                     job_id=f"cached_{submission_id}",
                     status=JobStatus.COMPLETED,
                     message="Kết quả chẩn đoán đã sẵn sàng từ bộ nhớ đệm.",
-                    result=self._memory_cache[submission_id].model_dump(),
+                    result=memory_result.model_dump(),
                 )
 
-        # Enqueue background job with semaphore & 120s timeout
+        # The local CPU model needs more than 90 seconds for a full diagnosis.
         job_id, is_new = await job_manager.enqueue_job(
             JobType.CODE_DOCTOR,
             self._execute_diagnose,
             submission_id,
-            entity_key=self._cache_key(submission_id),
-            timeout_seconds=120,
+            actor_profile_id,
+            entity_key=redis_key,
+            timeout_seconds=165,
             metadata={"submission_id": submission_id},
         )
 
@@ -294,10 +321,16 @@ class CodeDoctorService:
         )
 
     async def diagnose_submission(
-        self, submission_id: int, db: AsyncSession, force_refresh: bool = False
+        self, submission_id: int, source: SourceGateway, actor_profile_id: int,
+        force_refresh: bool = False,
     ) -> CodeDoctorResponse:
         """Synchronous helper preserving backward compatibility."""
-        redis_key = self._cache_key(submission_id)
+        submission = await source.get_submission(
+            submission_id, actor_profile_id=actor_profile_id,
+            include_source=True, include_testcases=True,
+        )
+        problem = await source.get_problem(submission.problem_id, actor_profile_id=actor_profile_id)
+        redis_key = self._cache_key(submission_id, self._input_fingerprint(submission, problem))
         if not force_refresh:
             cached_json = await cache_get(redis_key)
             if cached_json:
@@ -305,93 +338,42 @@ class CodeDoctorService:
                     return CodeDoctorResponse.model_validate_json(cached_json)
                 except Exception:
                     pass
-            if submission_id in self._memory_cache:
-                return self._memory_cache[submission_id]
-        return await self._diagnose_submission_core(submission_id, db)
+            memory_result = self._get_memory_cache(redis_key)
+            if memory_result is not None:
+                return memory_result
+        return await self._diagnose_submission_core(submission_id, source, actor_profile_id, submission)
 
     @staticmethod
     async def get_failed_submissions(
-        user_id: int, db: AsyncSession, limit: int = 10
+        user_id: int, source: SourceGateway, actor_profile_id: int, limit: int = 10,
     ) -> List[FailedSubmissionItem]:
-        """Lấy danh sách các bài nộp bị lỗi gần đây của học sinh (bắt buộc có mã nguồn trong judge_submissionsource)."""
-        stmt = (
-            select(
-                JudgeSubmission.id.label("submission_id"),
-                JudgeSubmission.problem_id,
-                JudgeProblem.code.label("problem_code"),
-                JudgeProblem.name.label("problem_name"),
-                JudgeSubmission.result,
-                JudgeSubmission.status,
-                JudgeSubmission.date,
-                JudgeSubmission.points,
-                JudgeSubmission.language_id,
-            )
-            .join(JudgeProblem, JudgeProblem.id == JudgeSubmission.problem_id)
-            .join(JudgeSubmissionsource, JudgeSubmissionsource.submission_id == JudgeSubmission.id)
-            .where(
-                JudgeSubmission.user_id == user_id,
-                JudgeSubmission.result != "AC",
-                JudgeSubmission.result.isnot(None),
-            )
-            .order_by(JudgeSubmission.date.desc())
-            .limit(limit)
+        """List recent failures; provider filters both verdict and source availability before paging."""
+        page = await source.list_student_submissions(
+            user_id, actor_profile_id=actor_profile_id, exclude_result="AC",
+            only_with_source=True, limit=limit, sort="desc",
         )
-        res = await db.execute(stmt)
-        items = []
-        for row in res.all():
-            items.append(
-                FailedSubmissionItem(
-                    submission_id=row.submission_id,
-                    problem_id=row.problem_id,
-                    problem_code=row.problem_code or f"P{row.problem_id}",
-                    problem_name=row.problem_name or f"Bài {row.problem_id}",
-                    result=row.result or "FAILED",
-                    status=row.status,
-                    date=row.date.strftime("%d/%m/%Y %H:%M") if row.date else None,
-                    points=row.points or 0.0,
-                    language_id=row.language_id,
-                )
-            )
-        return items
+        return [FailedSubmissionItem(
+            submission_id=item.submission_id,
+            problem_id=item.problem_id,
+            problem_code=item.problem_code or f"P{item.problem_id}",
+            problem_name=item.problem_title or f"Bài {item.problem_id}",
+            result=item.result or item.status or "FAILED",
+            status=item.status,
+            date=item.submitted_at.strftime("%d/%m/%Y %H:%M") if item.submitted_at else None,
+            points=item.points or 0.0,
+            language_id=item.language_id,
+        ) for item in page.items]
 
     @staticmethod
-    async def get_submission_detail(submission_id: int, db: AsyncSession) -> SubmissionDetailResponse:
+    async def get_submission_detail(
+        submission_id: int, source: SourceGateway, actor_profile_id: int,
+    ) -> SubmissionDetailResponse:
         """Lấy chi tiết đầy đủ của bài nộp: đề bài, mã nguồn, thông tin test cases."""
-        sub_stmt = select(JudgeSubmission).where(JudgeSubmission.id == submission_id)
-        sub_res = await db.execute(sub_stmt)
-        submission = sub_res.scalar_one_or_none()
-        if not submission:
-            raise HTTPException(status_code=404, detail=f"Submission {submission_id} not found.")
-
-        src_stmt = select(JudgeSubmissionsource).where(JudgeSubmissionsource.submission_id == submission_id)
-        src_res = await db.execute(src_stmt)
-        source_obj = src_res.scalar_one_or_none()
-        source_code = source_obj.source if source_obj else "// Không có mã nguồn lưu trữ"
-
-        prob_stmt = select(JudgeProblem).where(JudgeProblem.id == submission.problem_id)
-        prob_res = await db.execute(prob_stmt)
-        problem = prob_res.scalar_one_or_none()
-        problem_title = (problem.name or "Bài toán") if problem else "Bài toán"
-        problem_code = (problem.code or f"P{submission.problem_id}") if problem else f"P{submission.problem_id}"
-        problem_desc = (problem.description or "") if problem else ""
-        time_limit = problem.time_limit if problem and problem.time_limit else 1.0
-        memory_limit = problem.memory_limit if problem and problem.memory_limit else 256
-        problem_points = problem.points if problem and problem.points else 100.0
-
-        language_name = "C++"
-        if submission.language_id:
-            lang_stmt = select(JudgeLanguage).where(JudgeLanguage.id == submission.language_id)
-            lang_res = await db.execute(lang_stmt)
-            lang_obj = lang_res.scalar_one_or_none()
-            if lang_obj:
-                language_name = lang_obj.name or lang_obj.common_name or "C++"
-
-        tc_stmt = (
-            select(JudgeSubmissionTestcase)
-            .where(JudgeSubmissionTestcase.submission_id == submission_id)
-            .order_by(JudgeSubmissionTestcase.case.asc())
+        submission = await source.get_submission(
+            submission_id, actor_profile_id=actor_profile_id,
+            include_source=True, include_testcases=True,
         )
-        tc_res = await db.execute(tc_stmt)
+        problem = await source.get_problem(submission.problem_id, actor_profile_id=actor_profile_id)
         testcase_items = [
             TestCaseDetailItem(
                 case=tc.case,
@@ -403,27 +385,28 @@ class CodeDoctorService:
                 feedback=tc.feedback,
                 output=tc.output,
             )
-            for tc in tc_res.scalars().all()
+            for tc in submission.testcases
         ]
 
         return SubmissionDetailResponse(
             submission_id=submission_id,
-            user_id=submission.user_id,
+            user_id=submission.profile_id,
             problem_id=submission.problem_id,
-            problem_code=problem_code,
-            problem_name=problem_title,
-            problem_description=problem_desc,
-            time_limit=time_limit,
-            memory_limit=memory_limit,
-            problem_points=problem_points,
+            problem_code=problem.code or f"P{submission.problem_id}",
+            problem_name=problem.title or problem.name or "Bài toán",
+            problem_description=problem.description or "",
+            time_limit=problem.time_limit or 1.0,
+            memory_limit=problem.memory_limit or 256,
+            problem_points=problem.points or 100.0,
             result=submission.result or "FAILED",
             status=submission.status,
-            date=submission.date.strftime("%d/%m/%Y %H:%M:%S") if submission.date else None,
+            date=submission.submitted_at.strftime("%d/%m/%Y %H:%M:%S") if submission.submitted_at else None,
             time=submission.time,
             memory=submission.memory,
             points=submission.points or 0.0,
-            language_name=language_name,
-            source_code=source_code,
+            language_name=(submission.language.name or submission.language.common_name or "C++")
+                if submission.language else "C++",
+            source_code=submission.source_code or "// Không có mã nguồn lưu trữ",
             testcases=testcase_items,
         )
 

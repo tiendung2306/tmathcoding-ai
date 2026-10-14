@@ -5,6 +5,7 @@ import { Badge } from '../components/ui/badge';
 import { Square, AlertTriangle, AlertCircle, CheckCircle2, Clock, Inbox, ArchiveX } from 'lucide-react';
 import { stopVirtualClass, fetchLiveSubmissions } from '../services/api';
 import { SubmissionDetailModal } from '../components/SubmissionDetailModal';
+import { applyLiveSubmissionEvents, shouldResetLiveFeed } from '../lib/liveSubmissions.mjs';
 
 interface VirtualClassLiveRoomProps {
   sessionId: number;
@@ -21,7 +22,8 @@ export const VirtualClassLiveRoom: React.FC<VirtualClassLiveRoomProps> = ({
 }) => {
   const [loading, setLoading] = useState(false);
   const [submissions, setSubmissions] = useState<any[]>([]);
-  const lastId = useRef(0);
+  const cursor = useRef<string | null>(null);
+  const feedSessionId = useRef<number | null>(null);
   const [fetching, setFetching] = useState(true);
   const [fetchRetry, setFetchRetry] = useState(0);
   const [stopError, setStopError] = useState<string | null>(null);
@@ -36,25 +38,35 @@ export const VirtualClassLiveRoom: React.FC<VirtualClassLiveRoomProps> = ({
     let active = true;
     let sessionEnded = false;
     const controller = new AbortController();
+    if (shouldResetLiveFeed(feedSessionId.current, sessionId)) {
+      feedSessionId.current = sessionId;
+      cursor.current = null;
+      setSubmissions([]);
+    }
     const fetchSubmissions = async () => {
+      let nextDelay = 3000;
       try {
-        const res = await fetchLiveSubmissions(sessionId, lastId.current, controller.signal);
+        const res = await fetchLiveSubmissions(sessionId, cursor.current, controller.signal);
         if (!active) return;
         setFetchError(null);
+        cursor.current = res.cursor ?? null;
         if (isActive && res.is_active === false) {
           sessionEnded = true;
           sessionStopped.current();
         }
-        if (res.submissions.length > 0) {
-          setSubmissions(prev => [...res.submissions, ...prev].filter((item, index, items) => items.findIndex(candidate => candidate.id === item.id) === index));
-          lastId.current = res.last_id;
+        setSubmissions(previous => applyLiveSubmissionEvents(previous, res.events, res.snapshot));
+      } catch (err: any) {
+        if (active && err?.response?.status === 409) {
+          cursor.current = null;
+          setFetchError('Đang đồng bộ lại dữ liệu bài nộp.');
+          nextDelay = 250;
+          return;
         }
-      } catch (err) {
         if (active) setFetchError("Không thể tải dữ liệu bài nộp.");
       } finally {
         if (active) {
           setFetching(false);
-          if (isActive && !sessionEnded) timer = setTimeout(fetchSubmissions, 3000);
+          if (isActive && !sessionEnded) timer = setTimeout(fetchSubmissions, nextDelay);
         }
       }
     };
@@ -78,12 +90,10 @@ export const VirtualClassLiveRoom: React.FC<VirtualClassLiveRoomProps> = ({
     }
   };
 
-  // Calculate Stats
   const statAiWarnings = submissions.filter(s => s.ai_flags?.is_ai_generated || s.ai_flags?.is_copied).length;
   const statErrors = submissions.filter(s => s.ai_flags?.has_error).length;
   const statAc = submissions.filter(s => s.result === 'AC').length;
 
-  // Determine left border color for a submission card
   const getSubmissionBorderClass = (sub: any): string => {
     if (sub.ai_flags?.is_ai_generated || sub.ai_flags?.is_copied) {
       return 'border-l-[3px] border-l-orange-400';

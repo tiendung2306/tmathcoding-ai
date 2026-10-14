@@ -10,11 +10,10 @@ from fastapi import Depends, HTTPException, Request
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.database import get_db
 from app.core.dashboard_database import get_dashboard_db
 from app.core.time import utc_now
 from app.models.auth import DashboardAccount, DashboardAuthSession
-from app.models.dmoj import JudgeProfile
+from app.services.source_gateway import SourceGateway, get_source_gateway
 
 COOKIE_NAME = "tmath_session"
 SESSION_DAYS = 7
@@ -75,12 +74,12 @@ async def require_account(auth=Depends(current_auth)) -> DashboardAccount:
 
 
 async def require_admin(account: DashboardAccount = Depends(require_account),
-                        source: AsyncSession = Depends(get_db)) -> DashboardAccount:
+                        source: SourceGateway = Depends(get_source_gateway)) -> DashboardAccount:
     if account.role != "admin" or account.admin_slot != 1:
         raise HTTPException(403, "Chỉ quản trị viên được truy cập khu vực này.")
-    profile = (await source.execute(select(JudgeProfile).where(
-        JudgeProfile.id == account.source_profile_id
-    ))).scalar_one_or_none()
-    if profile is None or not profile.super_admin:
+    if account.source_profile_id is None:
+        raise HTTPException(403, "Quyền quản trị nguồn không còn hợp lệ.")
+    profile = await source.get_access(account.source_profile_id, actor_profile_id=account.source_profile_id)
+    if not profile.exists or not profile.is_active or not profile.is_super_admin:
         raise HTTPException(403, "Quyền quản trị nguồn không còn hợp lệ.")
     return account

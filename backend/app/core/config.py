@@ -1,5 +1,5 @@
 from pydantic_settings import BaseSettings, SettingsConfigDict
-from pydantic import AliasChoices, Field, field_validator, model_validator
+from pydantic import AliasChoices, Field, field_validator
 from sqlalchemy.engine import URL
 from typing import List, Union
 import json
@@ -9,16 +9,11 @@ class Settings(BaseSettings):
     PROJECT_NAME: str
     API_V1_STR: str = "/api/v1"
     DASHBOARD_ADMIN_PROFILE_ID: int = Field(default=2, ge=1)
+    SOURCE_API_BASE_URL: str = ""
+    SOURCE_API_TOKEN: str = ""
+    SOURCE_API_TIMEOUT_SECONDS: float = Field(default=8.0, gt=0)
     
-    # Backup Directory Configuration
-    BACKUP_DIR: str = "backup"
-    
-    # Database MySQL Configuration (Required from Environment)
-    SOURCE_DB_HOST: str = Field(validation_alias=AliasChoices("SOURCE_DB_HOST", "MYSQL_HOST"))
-    SOURCE_DB_PORT: int = Field(default=3306, ge=1, le=65535, validation_alias=AliasChoices("SOURCE_DB_PORT", "MYSQL_PORT"))
-    SOURCE_DB_USER: str = Field(validation_alias=AliasChoices("SOURCE_DB_USER", "MYSQL_USER"))
-    SOURCE_DB_PASSWORD: str = Field(validation_alias=AliasChoices("SOURCE_DB_PASSWORD", "MYSQL_PASSWORD"))
-    SOURCE_DB_NAME: str = Field(validation_alias=AliasChoices("SOURCE_DB_NAME", "MYSQL_DB"))
+    # Dashboard-owned database. Source data is accessed only through SOURCE_API_*.
     DASHBOARD_DB_HOST: str
     DASHBOARD_DB_PORT: int = Field(default=3306, ge=1, le=65535)
     DASHBOARD_DB_USER: str
@@ -27,18 +22,6 @@ class Settings(BaseSettings):
     DASHBOARD_MIGRATION_USER: str = ""
     DASHBOARD_MIGRATION_PASSWORD: str = ""
     AUTH_COOKIE_SECURE: bool = True
-
-    @model_validator(mode="after")
-    def separate_databases(self):
-        if self.DASHBOARD_DB_NAME.casefold() == self.SOURCE_DB_NAME.casefold():
-            raise ValueError("DASHBOARD_DB_NAME must differ from SOURCE_DB_NAME")
-        return self
-
-    @property
-    def source_database_url(self) -> URL:
-        return URL.create("mysql+aiomysql", username=self.SOURCE_DB_USER, password=self.SOURCE_DB_PASSWORD,
-                          host=self.SOURCE_DB_HOST, port=self.SOURCE_DB_PORT, database=self.SOURCE_DB_NAME,
-                          query={"charset": "utf8mb4"})
 
     @property
     def dashboard_database_url(self) -> URL:
@@ -53,16 +36,7 @@ class Settings(BaseSettings):
         return self.dashboard_database_url.set(drivername="mysql+pymysql", username=self.DASHBOARD_MIGRATION_USER,
                                                password=self.DASHBOARD_MIGRATION_PASSWORD)
 
-    MYSQL_HOST = property(lambda self: self.SOURCE_DB_HOST)
-    MYSQL_PORT = property(lambda self: self.SOURCE_DB_PORT)
-    MYSQL_USER = property(lambda self: self.SOURCE_DB_USER)
-    MYSQL_PASSWORD = property(lambda self: self.SOURCE_DB_PASSWORD)
-    MYSQL_DB = property(lambda self: self.SOURCE_DB_NAME)
     CONFIG_MYSQL_DB = property(lambda self: self.DASHBOARD_DB_NAME)
-    
-    @property
-    def ASYNC_DATABASE_URL(self) -> str:
-        return self.source_database_url.render_as_string(hide_password=False)
 
     # Redis Configuration
     REDIS_HOST: str = "localhost"

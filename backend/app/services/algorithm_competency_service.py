@@ -1,22 +1,12 @@
-from datetime import datetime, timedelta
 import asyncio
-from app.services.source_cleaner import prepare_source
-from typing import Dict, List, Optional, Tuple
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func
+from datetime import datetime, timedelta
+from typing import Dict, List, Optional
+
 from fastapi import HTTPException
 
-from app.models.dmoj import (
-    JudgeSubmission,
-    JudgeLanguage,
-    JudgeProblem,
-    JudgeProblemTypes,
-    JudgeProfile,
-    JudgeOrganization,
-    JudgeProfileOrganizations,
-    JudgeSubmissionsource,
-    AuthUser,
-)
+from app.core.time_ranges import get_cutoff_date
+from app.services.source_cleaner import prepare_source
+from app.services.source_gateway import SourceGateway, SourceTagGroupRequest
 from app.schemas.student import AlgorithmRadar, PillarBreakdownItem
 from app.schemas.teacher import (
     ClassHeatmapResponse,
@@ -103,349 +93,334 @@ ALGORITHM_PILLARS = {
 
 PILLAR_KEYS = list(ALGORITHM_PILLARS.keys())
 PILLAR_COLUMNS = [ALGORITHM_PILLARS[k]["name"] for k in PILLAR_KEYS]
+PILLAR_DISPLAY_LABELS = {key: ALGORITHM_PILLARS[key]["name"] for key in PILLAR_KEYS}
+INACTIVE_DAYS = 7
 
 
 class AlgorithmCompetencyService:
-    """Quản lý và tính toán năng lực 8 Trụ cột Thuật toán kết hợp lọc theo Mốc thời gian."""
+    """Calculate student radars and class ratings from source API snapshots."""
 
     @staticmethod
-    async def get_reference_now(db: AsyncSession) -> datetime:
-        """Xác định mốc thời gian hiện tại tham chiếu (neo theo bài nộp mới nhất trong DB hoặc thời gian thực)."""
-        stmt = select(func.max(JudgeSubmission.date))
-        latest_date = (await db.execute(stmt)).scalar_one_or_none()
-        return latest_date or datetime.utcnow()
-
-    @staticmethod
-    def get_cutoff_date(time_range: str, ref_now: datetime) -> Optional[datetime]:
-        """Tính ngày bắt đầu (cutoff date) từ mốc thời gian."""
-        if time_range == "1d":
-            return ref_now - timedelta(days=1)
-        elif time_range == "7d":
-            return ref_now - timedelta(days=7)
-        elif time_range == "30d":
-            return ref_now - timedelta(days=30)
-        elif time_range == "1y":
-            return ref_now - timedelta(days=365)
-        return None  # 'all' -> toàn bộ quá trình
+    def get_cutoff_date(time_range: str, ref_now: datetime | None) -> datetime | None:
+        return get_cutoff_date(time_range, ref_now) if ref_now is not None else None
 
     @staticmethod
     def get_target_benchmark(pillar_key: str, time_range: str) -> int:
         pillar = ALGORITHM_PILLARS.get(pillar_key, {})
-        key = f"target_{time_range}" if time_range in ["1d", "7d", "30d", "1y"] else "target_all"
+        key = f"target_{time_range}" if time_range in {"1d", "7d", "30d", "1y"} else "target_all"
         return pillar.get(key, 20)
 
     @staticmethod
-    async def get_ac_counts_by_pillars(
-        user_ids: List[int],
-        cutoff_date: Optional[datetime],
-        db: AsyncSession
-    ) -> Dict[int, Dict[str, int]]:
-        """Đếm số bài toán AC duy nhất của mỗi học sinh trong từng chuyên đề thuật toán."""
-        if not user_ids:
-            return {}
+    def _tag_groups() -> list[SourceTagGroupRequest]:
+        return [SourceTagGroupRequest(key=key, tag_ids=ALGORITHM_PILLARS[key]["tag_ids"])
+                for key in PILLAR_KEYS]
 
-        # Tạo ánh xạ ngược từ tag_id sang pillar_key
-        tag_to_pillar: Dict[int, str] = {}
-        for p_key, meta in ALGORITHM_PILLARS.items():
-            for t_id in meta["tag_ids"]:
-                tag_to_pillar[t_id] = p_key
-
-        all_tag_ids = list(tag_to_pillar.keys())
-
-        stmt = (
-            select(
-                JudgeSubmission.user_id,
-                JudgeProblemTypes.problemtype_id,
-                JudgeSubmission.problem_id
+    @staticmethod
+    async def _facts_for_student(source: SourceGateway, profile_id: int, actor_profile_id: int,
+                                 date_from: datetime | None, embedded) -> tuple[list, str | int | None]:
+        if embedded is not None:
+            return embedded, None
+        facts = []
+        cursor = None
+        seen: set[str] = set()
+        version = None
+        while True:
+            page = await source.list_student_problem_facts(
+                profile_id, actor_profile_id=actor_profile_id, date_from=date_from,
+                date_to=None, cursor=cursor, limit=100,
             )
-            .join(JudgeProblemTypes, JudgeProblemTypes.problem_id == JudgeSubmission.problem_id)
-            .where(
-                JudgeSubmission.user_id.in_(user_ids),
-                JudgeSubmission.result == "AC",
-                JudgeProblemTypes.problemtype_id.in_(all_tag_ids),
+            if version is None:
+                version = page.catalog_version
+            elif page.catalog_version != version:
+                raise HTTPException(409, "Danh mục đã thay đổi trong lúc tải; hãy thử lại.")
+            facts.extend(page.items)
+            if not page.has_more:
+                return facts, version
+            cursor = page.next_cursor
+            if not cursor or cursor in seen:
+                raise HTTPException(502, "Dịch vụ dữ liệu nguồn trả phân trang không hợp lệ.")
+            seen.add(cursor)
+
+    @staticmethod
+    async def _student_radar_data(source: SourceGateway, user_id: int, time_range: str,
+                                 actor_profile_id: int):
+        groups = AlgorithmCompetencyService._tag_groups()
+        try:
+            initial = await source.aggregate_students(
+                [user_id], actor_profile_id=actor_profile_id, tag_groups=groups,
+                include_problem_facts=True,
             )
+        except HTTPException as exc:
+            if exc.status_code != 422:
+                raise
+            initial = await source.aggregate_students(
+                [user_id], actor_profile_id=actor_profile_id, tag_groups=groups,
+                include_problem_facts=False,
+            )
+        reference_now = initial.reference_now
+        cutoff = AlgorithmCompetencyService.get_cutoff_date(time_range, reference_now)
+        window = initial
+        if cutoff is not None:
+            try:
+                window = await source.aggregate_students(
+                    [user_id], actor_profile_id=actor_profile_id, date_from=cutoff,
+                    date_to=None, tag_groups=groups, include_problem_facts=True,
+                )
+            except HTTPException as exc:
+                if exc.status_code != 422:
+                    raise
+                window = await source.aggregate_students(
+                    [user_id], actor_profile_id=actor_profile_id, date_from=cutoff,
+                    date_to=None, tag_groups=groups, include_problem_facts=False,
+                )
+            if window.catalog_version != initial.catalog_version:
+                raise HTTPException(409, "Danh mục đã thay đổi trong lúc tải; hãy thử lại.")
+        student = next((item for item in window.students if item.profile_id == user_id), None)
+        if student is None:
+            raise HTTPException(502, "Dịch vụ dữ liệu nguồn thiếu thống kê học sinh.")
+        facts, facts_version = await AlgorithmCompetencyService._facts_for_student(
+            source, user_id, actor_profile_id, cutoff, student.problem_facts,
         )
-        if cutoff_date:
-            stmt = stmt.where(JudgeSubmission.date >= cutoff_date)
-
-        res = await db.execute(stmt)
-        
-        # Gom nhóm bài toán duy nhất theo {user_id: {pillar_key: set(problem_id)}}
-        user_pillar_problems: Dict[int, Dict[str, set]] = {uid: {k: set() for k in PILLAR_KEYS} for uid in user_ids}
-        for uid, tag_id, prob_id in res.all():
-            p_key = tag_to_pillar.get(tag_id)
-            if p_key and uid in user_pillar_problems:
-                user_pillar_problems[uid][p_key].add(prob_id)
-
-        # Chuyển thành số lượng
-        return {
-            uid: {k: len(probs) for k, probs in pillars.items()}
-            for uid, pillars in user_pillar_problems.items()
-        }
+        if facts_version is not None and facts_version != window.catalog_version:
+            raise HTTPException(409, "Danh mục đã thay đổi trong lúc tải; hãy thử lại.")
+        try:
+            samples = await source.list_student_submission_samples(
+                user_id, actor_profile_id=actor_profile_id, date_from=cutoff,
+                date_to=None, tag_ids=sorted({tag for group in groups for tag in group.tag_ids}),
+                result="AC", per_group_limit=3,
+            )
+            sample_items = samples.items
+        except HTTPException as exc:
+            # Code quality is an optional radar component when the caller lacks
+            # the provider's separate source-code scope.
+            if exc.status_code != 403:
+                raise
+            sample_items = []
+        return reference_now, cutoff, facts, sample_items, window.catalog_version
 
     @staticmethod
     async def get_student_radar(
         user_id: int,
         time_range: str,
-        db: AsyncSession,
-        dashboard_db: AsyncSession = None,
+        source: SourceGateway,
+        dashboard_db=None,
+        *, actor_profile_id: int,
     ) -> AlgorithmRadar:
-        """Tính điểm Radar 8 trục bát giác cho 1 học sinh theo mô hình 4 thành phần đa chiều."""
-        ref_now = await AlgorithmCompetencyService.get_reference_now(db)
-        cutoff = AlgorithmCompetencyService.get_cutoff_date(time_range, ref_now)
-
+        await source.get_student(user_id, actor_profile_id=actor_profile_id)
+        reference_now, cutoff, facts, samples, _version = await AlgorithmCompetencyService._student_radar_data(
+            source, user_id, time_range, actor_profile_id,
+        )
         if dashboard_db is not None:
             from app.services.skill_config_service import configuration, preview
             from app.schemas.skill_config import SkillDocument
             config = await configuration(dashboard_db)
             if config.published is not None:
-                forest = await preview(SkillDocument.model_validate(config.published), db, user_id, cutoff)
-                return AlgorithmRadar(time_range=time_range, axes=[{"key": root["id"], "title": root["title"],
-                    "ac_count": root["ac_count"], "attempted_count": root["attempted_count"], "problem_count": root["problem_count"]} for root in forest["roots"]])
+                forest = await preview(
+                    SkillDocument.model_validate(config.published), source, user_id,
+                    cutoff, actor_profile_id=actor_profile_id,
+                )
+                return AlgorithmRadar(time_range=time_range, axes=[{
+                    "key": root["id"], "title": root["title"],
+                    "ac_count": root["ac_count"], "attempted_count": root["attempted_count"],
+                    "problem_count": root["problem_count"],
+                } for root in forest["roots"]])
 
-        tag_to_pillar: Dict[int, str] = {}
-        for p_key, meta in ALGORITHM_PILLARS.items():
-            for t_id in meta["tag_ids"]:
-                tag_to_pillar[t_id] = p_key
-        all_tag_ids = list(tag_to_pillar.keys())
-
-        # 1. Truy vấn toàn bộ submissions của học sinh trong các chuyên đề
-        stmt = (
-            select(
-                JudgeSubmission.id,
-                JudgeSubmission.problem_id,
-                JudgeSubmission.result,
-                JudgeSubmission.time,
-                JudgeSubmission.memory,
-                JudgeSubmission.date,
-                JudgeProblem.group_id,
-                JudgeProblem.time_limit,
-                JudgeProblem.memory_limit,
-                JudgeProblemTypes.problemtype_id,
-            )
-            .join(JudgeProblem, JudgeProblem.id == JudgeSubmission.problem_id)
-            .join(JudgeProblemTypes, JudgeProblemTypes.problem_id == JudgeSubmission.problem_id)
-            .where(
-                JudgeSubmission.user_id == user_id,
-                JudgeProblemTypes.problemtype_id.in_(all_tag_ids),
-            )
-            .order_by(JudgeSubmission.date.asc())
-        )
-        if cutoff:
-            stmt = stmt.where(JudgeSubmission.date >= cutoff)
-
-        sub_rows = (await db.execute(stmt)).all()
-
-        # 2. Gom nhóm theo pillar
-        pillar_subs: Dict[str, List[Dict[str, Any]]] = {k: [] for k in PILLAR_KEYS}
-        pillar_problems: Dict[str, Dict[int, Dict[str, Any]]] = {k: {} for k in PILLAR_KEYS}
-        pillar_ac_sub_ids: Dict[str, List[int]] = {k: [] for k in PILLAR_KEYS}
-
-        seen_submissions = set()
-        for row in sub_rows:
-            p_key = tag_to_pillar.get(row[9])
-            if not p_key:
-                continue
-            if (p_key, row[0]) in seen_submissions:
-                continue
-            seen_submissions.add((p_key, row[0]))
-
-            sub_item = {
-                "id": row[0],
-                "problem_id": row[1],
-                "result": row[2],
-                "time": row[3] or 0.0,
-                "memory": row[4] or 0.0,
-                "date": row[5],
-                "group_id": row[6],
-                "time_limit": row[7] or 1.0,
-                "memory_limit": row[8] or 256000,
-            }
-            pillar_subs[p_key].append(sub_item)
-
-            pid = sub_item["problem_id"]
-            if pid not in pillar_problems[p_key]:
-                pillar_problems[p_key][pid] = {
-                    "group_id": sub_item["group_id"],
-                    "time_limit": sub_item["time_limit"],
-                    "memory_limit": sub_item["memory_limit"],
-                    "attempts": 0,
-                    "is_ac": False,
-                    "ac_time": 0.0,
-                    "ac_sub_id": None,
-                    "fail_before_ac": 0,
-                }
-
-            prob_stat = pillar_problems[p_key][pid]
-            prob_stat["attempts"] += 1
-            if sub_item["result"] == "AC":
-                if not prob_stat["is_ac"]:
-                    prob_stat["is_ac"] = True
-                    prob_stat["ac_time"] = sub_item["time"]
-                    prob_stat["ac_sub_id"] = sub_item["id"]
-                    pillar_ac_sub_ids[p_key].append(sub_item["id"])
-            elif not prob_stat["is_ac"]:
-                prob_stat["fail_before_ac"] += 1
-
-        # 3. Lấy mẫu mã nguồn cho các bài AC tiêu biểu (tối đa 3 bài mỗi pillar)
-        all_sample_ids: List[int] = []
-        for k in PILLAR_KEYS:
-            all_sample_ids.extend(pillar_ac_sub_ids[k][-3:])
-
-        sources_map: Dict[int, str] = {}
-        if all_sample_ids:
-            src_stmt = select(JudgeSubmissionsource.submission_id, JudgeSubmissionsource.source, JudgeLanguage.key).join(JudgeSubmission, JudgeSubmission.id == JudgeSubmissionsource.submission_id).outerjoin(JudgeLanguage, JudgeLanguage.id == JudgeSubmission.language_id).where(
-                JudgeSubmissionsource.submission_id.in_(all_sample_ids)
-            )
-            for sid, src, language_key in (await db.execute(src_stmt)).all():
-                prepared = await asyncio.to_thread(prepare_source, src or "", language_key or "unknown")
-                sources_map[sid] = prepared.analysis_source
-
-        # 4. Chấm điểm từng pillar qua CompetencyEvaluator
         scores: Dict[str, float] = {}
-        breakdown_dict: Dict[str, PillarBreakdownItem] = {}
+        breakdown: Dict[str, PillarBreakdownItem] = {}
+        for key in PILLAR_KEYS:
+            tags = set(ALGORITHM_PILLARS[key]["tag_ids"])
+            matching = [fact for fact in facts if tags.intersection(fact.tag_ids)]
+            problems_map = {}
+            submissions = []
+            for fact in matching:
+                problems_map[fact.problem_id] = {
+                    "group_id": fact.group_id,
+                    "time_limit": fact.problem_time_limit or 1.0,
+                    "memory_limit": fact.problem_memory_limit or 256000,
+                    "attempts": fact.attempt_count,
+                    "is_ac": fact.ac_count > 0,
+                    "ac_time": (fact.first_ac_time if fact.first_ac_time is not None
+                                else fact.best_ac_time or 0.0),
+                    "ac_sub_id": fact.first_ac_submission_id,
+                    "fail_before_ac": fact.failed_before_first_ac_count,
+                    "rapid_failure_pair_count": fact.rapid_failure_pair_count,
+                }
+                for verdict, count in fact.verdict_counts.items():
+                    submissions.extend({"problem_id": fact.problem_id, "result": verdict} for _ in range(count))
 
-        for k in PILLAR_KEYS:
-            sample_sources = [
-                sources_map[sid] for sid in pillar_ac_sub_ids[k][-3:] if sid in sources_map
-            ]
-            eval_res = CompetencyEvaluator.evaluate_pillar(
-                pillar_key=k,
-                time_range=time_range,
-                submissions=pillar_subs[k],
-                problems_map=pillar_problems[k],
-                sample_sources=sample_sources,
+            sample_sources = []
+            for item in samples:
+                if tags.intersection(item.tag_ids) and item.source_code:
+                    prepared = await asyncio.to_thread(
+                        prepare_source, item.source_code, item.language_key or "unknown",
+                    )
+                    sample_sources.append(prepared.analysis_source)
+            result = CompetencyEvaluator.evaluate_pillar(
+                pillar_key=key, time_range=time_range, submissions=submissions,
+                problems_map=problems_map, sample_sources=sample_sources[:3],
             )
-            scores[k] = eval_res["score"]
-            breakdown_dict[k] = PillarBreakdownItem(
-                score=eval_res["score"],
-                base_score=eval_res["base_score"],
-                precision_mod=eval_res["precision_mod"],
-                efficiency_mod=eval_res["efficiency_mod"],
-                code_quality_mod=eval_res["code_quality_mod"],
-                ac_count=eval_res["ac_count"],
-                total_subs=eval_res["total_subs"],
-                avg_time_ratio=eval_res["avg_time_ratio"],
-                breakdown_items=eval_res["breakdown_items"],
+            scores[key] = result["score"]
+            breakdown[key] = PillarBreakdownItem(
+                score=result["score"], base_score=result["base_score"],
+                precision_mod=result["precision_mod"], efficiency_mod=result["efficiency_mod"],
+                code_quality_mod=result["code_quality_mod"], ac_count=result["ac_count"],
+                total_subs=result["total_subs"], avg_time_ratio=result["avg_time_ratio"],
+                breakdown_items=result["breakdown_items"],
             )
-
         return AlgorithmRadar(
-            time_range=time_range,
-            quy_hoach_dong=scores["quy_hoach_dong"],
-            cau_truc_du_lieu=scores["cau_truc_du_lieu"],
-            xu_ly_xau=scores["xu_ly_xau"],
-            ham_co_ban=scores["ham_co_ban"],
-            toan_hoc=scores["toan_hoc"],
-            hinh_hoc=scores["hinh_hoc"],
-            do_thi=scores["do_thi"],
-            tham_lam=scores["tham_lam"],
-            breakdown=breakdown_dict,
+            time_range=time_range, quy_hoach_dong=scores["quy_hoach_dong"],
+            cau_truc_du_lieu=scores["cau_truc_du_lieu"], xu_ly_xau=scores["xu_ly_xau"],
+            ham_co_ban=scores["ham_co_ban"], toan_hoc=scores["toan_hoc"],
+            hinh_hoc=scores["hinh_hoc"], do_thi=scores["do_thi"], tham_lam=scores["tham_lam"],
+            breakdown=breakdown,
         )
+
+    @staticmethod
+    async def _class_students(source: SourceGateway, class_id: int, actor_profile_id: int):
+        students = []
+        cursor = None
+        seen: set[str] = set()
+        while True:
+            page = await source.list_class_students(
+                class_id, actor_profile_id=actor_profile_id, cursor=cursor, limit=100,
+            )
+            students.extend(page.items)
+            if not page.has_more:
+                return students
+            cursor = page.next_cursor
+            if not cursor or cursor in seen:
+                raise HTTPException(502, "Dịch vụ dữ liệu nguồn trả phân trang lớp không hợp lệ.")
+            seen.add(cursor)
 
     @staticmethod
     async def get_class_competency_heatmap(
         org_id: int,
         time_range: str,
-        db: AsyncSession,
-        dashboard_db: AsyncSession = None,
+        source: SourceGateway,
+        dashboard_db=None,
+        *, actor_profile_id: int,
     ) -> ClassHeatmapResponse:
-        """Tính ma trận 8 cột năng lực thuật toán cho cả lớp theo mốc thời gian."""
-        org = (
-            await db.execute(select(JudgeOrganization).where(JudgeOrganization.id == org_id))
-        ).scalar_one_or_none()
-        if not org:
-            raise HTTPException(status_code=404, detail=f"Organization {org_id} not found.")
-
-        # Lấy danh sách thành viên trong lớp
-        m_stmt = select(JudgeProfileOrganizations.profile_id).where(
-            JudgeProfileOrganizations.organization_id == org_id
-        )
-        member_ids = [r[0] for r in (await db.execute(m_stmt)).all()]
+        organization = await source.get_class(org_id, actor_profile_id=actor_profile_id)
+        members = await AlgorithmCompetencyService._class_students(source, org_id, actor_profile_id)
         configured_document = None
-        configured_columns = PILLAR_COLUMNS
+        columns = PILLAR_COLUMNS
         if dashboard_db is not None:
             from app.services.skill_config_service import configuration, class_ratings
             from app.schemas.skill_config import SkillDocument
             config = await configuration(dashboard_db)
             if config.published is not None:
                 configured_document = SkillDocument.model_validate(config.published)
-                configured_columns, _ = await class_ratings(configured_document, db, [], None)
-        if not member_ids:
+        if not members:
+            if configured_document is not None:
+                from app.services.skill_config_service import class_ratings
+                columns, _ = await class_ratings(
+                    configured_document, source, [], None, actor_profile_id=actor_profile_id,
+                )
+                metric = "ac_count"
+            else:
+                columns = PILLAR_COLUMNS
+                metric = "score"
             return ClassHeatmapResponse(
-                organization_id=org_id,
-                organization_name=org.name or f"Lớp #{org_id}",
-                time_range=time_range,
-                columns=configured_columns, metric="ac_count" if configured_document is not None else "score",
-                students=[],
-                class_averages=[0.0] * len(configured_columns),
+                organization_id=org_id, organization_name=organization.name or f"Lớp #{org_id}",
+                time_range=time_range, columns=columns,
+                metric=metric,
+                students=[], class_averages=[0.0] * len(columns),
             )
+        member_ids = [member.profile_id for member in members]
+        groups = AlgorithmCompetencyService._tag_groups()
+        baseline_pages = []
+        for start in range(0, len(member_ids), 100):
+            batch = await source.aggregate_students(
+                member_ids[start:start + 100], actor_profile_id=actor_profile_id,
+                tag_groups=groups,
+            )
+            if baseline_pages and batch.catalog_version != baseline_pages[0].catalog_version:
+                raise HTTPException(409, "Danh mục đã thay đổi trong lúc tải heatmap.")
+            expected_ids = set(member_ids[start:start + 100])
+            if {item.profile_id for item in batch.students} != expected_ids:
+                raise HTTPException(502, "Dịch vụ dữ liệu nguồn thiếu thống kê học sinh.")
+            baseline_pages.append(batch)
+        baseline_version = baseline_pages[0].catalog_version
+        references = [page.reference_now for page in baseline_pages]
+        if any(value != references[0] for value in references[1:]):
+            raise HTTPException(409, "Mốc dữ liệu đã thay đổi trong lúc tải heatmap.")
+        reference = references[0]
+        as_of = max((page.as_of for page in baseline_pages if page.as_of), default=None)
+        at = reference or as_of
+        if at is None:
+            raise HTTPException(502, "Dịch vụ dữ liệu nguồn thiếu mốc thời gian snapshot.")
+        cutoff = AlgorithmCompetencyService.get_cutoff_date(time_range, reference)
 
-        # Lấy profile names
-        p_stmt = (
-            select(JudgeProfile.id, JudgeProfile.name)
-            .where(JudgeProfile.id.in_(member_ids))
-            .order_by(JudgeProfile.id)
-        )
-        profiles = {r.id: (r.name or f"User {r.id}") for r in (await db.execute(p_stmt)).all()}
-
-        ref_now = await AlgorithmCompetencyService.get_reference_now(db)
-        cutoff = AlgorithmCompetencyService.get_cutoff_date(time_range, ref_now)
-        ac_map = await AlgorithmCompetencyService.get_ac_counts_by_pillars(member_ids, cutoff, db)
-
-        # Cảnh báo nộp bài gần nhất
-        alerts_map: Dict[int, List[str]] = {uid: [] for uid in member_ids}
-        last_sub_stmt = (
-            select(JudgeSubmission.user_id, func.max(JudgeSubmission.date))
-            .where(JudgeSubmission.user_id.in_(member_ids))
-            .group_by(JudgeSubmission.user_id)
-        )
-        for uid, last_dt in (await db.execute(last_sub_stmt)).all():
-            if last_dt and (ref_now - last_dt > timedelta(days=7)):
-                alerts_map[uid].append("INACTIVE")
+        aggregates = []
+        for start in range(0, len(member_ids), 100):
+            batch_ids = member_ids[start:start + 100]
+            baseline_response = baseline_pages[start // 100]
+            response = baseline_response if cutoff is None else await source.aggregate_students(
+                batch_ids, actor_profile_id=actor_profile_id, date_from=cutoff, date_to=None,
+                tag_groups=groups, include_problem_facts=False,
+            )
+            if response.catalog_version != baseline_version:
+                raise HTTPException(409, "Danh mục đã thay đổi trong lúc tải heatmap.")
+            if response.reference_now != baseline_response.reference_now:
+                raise HTTPException(409, "Mốc dữ liệu đã thay đổi trong lúc tải heatmap.")
+            if {item.profile_id for item in response.students} != set(batch_ids):
+                raise HTTPException(502, "Dịch vụ dữ liệu nguồn thiếu thống kê học sinh.")
+            aggregates.extend(response.students)
+        alerts = {}
+        for start in range(0, len(member_ids), 100):
+            response = await source.get_student_alerts(
+                member_ids[start:start + 100], actor_profile_id=actor_profile_id, at=at,
+            )
+            if response.reference_now != reference:
+                raise HTTPException(409, "Mốc dữ liệu đã thay đổi trong lúc tải heatmap.")
+            if {item.profile_id for item in response.items} != set(member_ids[start:start + 100]):
+                raise HTTPException(502, "Dịch vụ dữ liệu nguồn thiếu trạng thái học sinh.")
+            for item in response.items:
+                alerts[item.profile_id] = item
 
         col_sums = [0.0] * len(PILLAR_KEYS)
-        rows: List[HeatmapStudentRow] = []
-
-        for uid in sorted(profiles.keys()):
-            u_ac = ac_map.get(uid, {})
-            scores: List[float] = []
-            for idx, k in enumerate(PILLAR_KEYS):
-                target = AlgorithmCompetencyService.get_target_benchmark(k, time_range)
-                score = min(100.0, round((u_ac.get(k, 0) / target) * 100.0, 1)) if target > 0 else 0.0
+        rows = []
+        by_id = {member.profile_id: member for member in members}
+        for student in sorted(aggregates, key=lambda item: item.profile_id):
+            profile = by_id.get(student.profile_id)
+            counts = {stat.key: stat.solved_unique_count for stat in student.requested_group_stats}
+            scores = []
+            for i, key in enumerate(PILLAR_KEYS):
+                target = AlgorithmCompetencyService.get_target_benchmark(key, time_range)
+                score = min(100.0, round(counts.get(key, 0) / target * 100.0, 1)) if target else 0.0
                 scores.append(score)
-                col_sums[idx] += score
-
-            # Cảnh báo lệch chuyên đề: Đồ thị/Quy hoạch động >= 40 nhưng Hàm cơ bản == 0
-            student_alerts = list(alerts_map.get(uid, []))
-            if (u_ac.get("quy_hoach_dong", 0) >= 3 or u_ac.get("do_thi", 0) >= 3) and u_ac.get("ham_co_ban", 0) == 0:
-                if "GAP" not in student_alerts:
-                    student_alerts.append("GAP")
-
-            rows.append(
-                HeatmapStudentRow(
-                    user_id=uid,
-                    student_name=profiles[uid],
-                    scores=scores,
-                    alerts=student_alerts,
-                )
-            )
-
+                col_sums[i] += score
+            alert = alerts.get(student.profile_id)
+            flags = []
+            last = alert.last_submission_at if alert else None
+            if last is None or (at - last > timedelta(days=INACTIVE_DAYS)):
+                flags.append("INACTIVE")
+            if alert and alert.has_stuck_problem:
+                flags.append("STUCK")
+            if ((counts.get("quy_hoach_dong", 0) >= 3 or counts.get("do_thi", 0) >= 3)
+                    and counts.get("ham_co_ban", 0) == 0):
+                flags.append("GAP")
+            rows.append(HeatmapStudentRow(
+                user_id=student.profile_id,
+                student_name=(profile.name or f"User {student.profile_id}") if profile else f"User {student.profile_id}",
+                scores=scores, alerts=flags,
+            ))
         n = len(rows)
-        averages = [round(s / n, 1) if n > 0 else 0.0 for s in col_sums]
-
+        averages = [round(total / n, 1) if n else 0.0 for total in col_sums]
         if configured_document is not None:
-            configured_columns, configured_scores = await class_ratings(configured_document, db, member_ids, cutoff)
+            from app.services.skill_config_service import class_ratings
+            columns, configured_scores = await class_ratings(
+                configured_document, source, member_ids, cutoff,
+                actor_profile_id=actor_profile_id, expected_reference_now=reference,
+            )
             for row in rows:
-                row.scores = configured_scores[row.user_id]
-            averages = [round(sum(row.scores[i] for row in rows) / n, 1) for i in range(len(configured_columns))] if n else [0.0] * len(configured_columns)
-
+                row.scores = configured_scores.get(row.user_id, [0.0] * len(columns))
+            averages = [round(sum(row.scores[i] for row in rows) / n, 1) for i in range(len(columns))] if n else [0.0] * len(columns)
         return ClassHeatmapResponse(
-            organization_id=org_id,
-            organization_name=org.name or f"Lớp #{org_id}",
-            time_range=time_range,
-            columns=configured_columns, metric="ac_count" if configured_document is not None else "score",
-            students=rows,
-            class_averages=averages,
+            organization_id=org_id, organization_name=organization.name or f"Lớp #{org_id}",
+            time_range=time_range, columns=columns,
+            metric="ac_count" if configured_document is not None else "score",
+            students=rows, class_averages=averages,
         )
 
 

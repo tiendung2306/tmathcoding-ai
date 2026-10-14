@@ -1,5 +1,4 @@
 
-from fastapi import HTTPException
 from sqlalchemy import delete, select
 from sqlalchemy.dialects.mysql import insert as mysql_insert
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
@@ -7,26 +6,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.class_preferences import ClassStar
 from app.core.time import utc_now
-from app.models.dmoj import JudgeOrganization, JudgeOrganizationAdmins, JudgeProfile
 from app.schemas.teacher import ClassStarResponse
+from app.services.source_gateway import SourceGateway
 
 
 async def set_class_star(
-    db: AsyncSession, config_db: AsyncSession, teacher_id: int, org_id: int, starred: bool,
+    gateway: SourceGateway, config_db: AsyncSession, teacher_id: int, org_id: int, starred: bool,
 ) -> ClassStarResponse:
-    profile = (await db.execute(
-        select(JudgeProfile).where(JudgeProfile.id == teacher_id)
-    )).scalar_one_or_none()
-    if profile is None:
-        raise HTTPException(status_code=403, detail="Bạn không có quyền lưu lớp này.")
-    visible = select(JudgeOrganization.id).where(JudgeOrganization.id == org_id)
-    if not profile.super_admin:
-        visible = visible.where(select(JudgeOrganizationAdmins.id).where(
-            JudgeOrganizationAdmins.organization_id == JudgeOrganization.id,
-            JudgeOrganizationAdmins.profile_id == teacher_id,
-        ).exists())
-    if (await db.execute(visible)).scalar_one_or_none() is None:
-        raise HTTPException(status_code=404, detail="Không tìm thấy lớp trong danh sách được phép xem.")
+    await gateway.get_class(org_id, actor_profile_id=teacher_id)
 
     key = {"owner_profile_id": teacher_id, "organization_id": org_id}
     if starred:

@@ -11,11 +11,9 @@ from app.api.v1.endpoints import auth as auth_endpoint
 from app.core.config import settings
 from app.core.dashboard_auth import require_admin, password_hasher
 from app.core.dashboard_database import get_dashboard_db
-from app.core.database import get_db
+from app.services.source_gateway import SourceAccess, get_source_gateway
 from app.core.time import utc_now
 from app.models.auth import DashboardAccount, DashboardAuthSession
-from app.models.dmoj import JudgeProfile
-from db_fixtures import create_source_tables
 
 
 class AsyncSessionAdapter:
@@ -50,6 +48,18 @@ class FakeRedis:
         self.counters.pop(key, None)
 
 
+class FakeSourceGateway:
+    def __init__(self):
+        self.admin_active = True
+        self.admin_super_admin = True
+
+    async def get_access(self, profile_id, *, actor_profile_id):
+        return SourceAccess(
+            profile_id=profile_id, exists=True, is_active=self.admin_active,
+            is_super_admin=self.admin_super_admin, roles=["admin"],
+        )
+
+
 class DashboardAuthTests(unittest.IsolatedAsyncioTestCase):
     def setUp(self):
         self.engine = create_engine("sqlite://")
@@ -62,12 +72,7 @@ class DashboardAuthTests(unittest.IsolatedAsyncioTestCase):
         ))
         self.session.commit()
         self.db = AsyncSessionAdapter(self.session)
-        self.source_engine = create_engine("sqlite://")
-        create_source_tables(self.source_engine, JudgeProfile)
-        self.source_session = Session(self.source_engine)
-        self.source_session.add(JudgeProfile(id=2, super_admin=1))
-        self.source_session.commit()
-        self.source = AsyncSessionAdapter(self.source_session)
+        self.source_api = FakeSourceGateway()
         self.redis = FakeRedis()
         self.app = FastAPI()
         self.app.include_router(auth_endpoint.router, prefix="/auth")
@@ -78,11 +83,11 @@ class DashboardAuthTests(unittest.IsolatedAsyncioTestCase):
 
         async def dashboard():
             yield self.db
-        async def source():
-            yield self.source
+        async def source_gateway():
+            return self.source_api
 
         self.app.dependency_overrides[get_dashboard_db] = dashboard
-        self.app.dependency_overrides[get_db] = source
+        self.app.dependency_overrides[get_source_gateway] = source_gateway
         self.cookie_patch = patch.object(settings, "AUTH_COOKIE_SECURE", False)
         self.redis_patch = patch.object(auth_endpoint, "get_redis_client", return_value=self.redis)
         self.cookie_patch.start()
@@ -93,8 +98,6 @@ class DashboardAuthTests(unittest.IsolatedAsyncioTestCase):
         self.cookie_patch.stop()
         self.session.close()
         self.engine.dispose()
-        self.source_session.close()
-        self.source_engine.dispose()
 
     async def test_login_grants_admin_access_and_logout(self):
         async with httpx.AsyncClient(transport=httpx.ASGITransport(app=self.app), base_url="http://test") as client:
@@ -109,8 +112,7 @@ class DashboardAuthTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual((await client.post("/auth/change-password", headers={"X-CSRF-Token": csrf},
                                                 json={"current_password": "test-only-password", "new_password": "new-password-123"})).status_code, 404)
             self.assertEqual((await client.get("/protected")).status_code, 200)
-            self.source_session.get(JudgeProfile, 2).super_admin = 0
-            self.source_session.commit()
+            self.source_api.admin_active = False
             self.assertEqual((await client.get("/protected")).status_code, 403)
             self.assertEqual((await client.post("/auth/logout", headers={"X-CSRF-Token": csrf})).status_code, 200)
             self.assertEqual((await client.get("/auth/me")).status_code, 401)
@@ -155,8 +157,7 @@ class DashboardAuthTests(unittest.IsolatedAsyncioTestCase):
     async def test_permission_denial_does_not_use_csrf_error_code(self):
         async with httpx.AsyncClient(transport=httpx.ASGITransport(app=self.app), base_url="http://test") as client:
             await client.post("/auth/login", json={"username": "admin", "password": "test-only-password"})
-            self.source_session.get(JudgeProfile, 2).super_admin = 0
-            self.source_session.commit()
+            self.source_api.admin_super_admin = False
             response = await client.get("/protected")
             self.assertEqual(response.status_code, 403)
             self.assertNotIn("X-Auth-Error", response.headers)

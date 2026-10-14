@@ -5,9 +5,10 @@
 Đọc [backend/DB_ARCHITECTURE.md](backend/DB_ARCHITECTURE.md) trước khi sửa model,
 kết nối DB, truy vấn qua hai DB hoặc migration.
 
-Dashboard kết nối DB gốc tmathcoding bằng `SOURCE_DB_*` với quyền chỉ đọc và quản
-lý schema riêng `tmath_dashboard` bằng `DASHBOARD_DB_*`. Hai kết nối có host,
-port và tài khoản độc lập. Config/star, phiên học và kết quả AI thuộc dashboard.
+Dashboard đọc dữ liệu gốc tmathcoding qua `SOURCE_API_*`, không kết nối trực tiếp
+DB gốc. Service Source API mock chỉ dùng `SOURCE_DB_*` với quyền đọc để phục vụ
+kiểm thử cục bộ. Dashboard quản lý schema riêng `tmath_dashboard` bằng
+`DASHBOARD_DB_*`. Config/star, phiên học và kết quả AI thuộc dashboard.
 
 - Lưu cấu hình mới của dashboard vào `tmath_dashboard`, không thêm các bảng cấu
   hình này vào database gốc.
@@ -16,7 +17,7 @@ port và tài khoản độc lập. Config/star, phiên học và kết quả AI
 - DDL chỉ chạy bằng Alembic với tài khoản migration riêng. Revision dùng
   `YYYYMMDD_NNNN`, có `down_revision`, `upgrade()`/`downgrade()`, và giữ một head.
   Revision đã triển khai không được sửa. Không gọi `create_all()` hay tạo DB ở startup.
-- Không join SQL xuyên DB/server. Ghép dữ liệu bằng ID qua hai kết nối độc lập.
+- Không join SQL xuyên DB/server. Ghép dữ liệu Source API và dashboard DB bằng ID.
 - Các tham chiếu đến profile/lớp của database gốc là ID logic, không tạo khóa
   ngoại xuyên database. Kiểm tra quyền trên dữ liệu gốc trước khi lưu tùy chọn.
 

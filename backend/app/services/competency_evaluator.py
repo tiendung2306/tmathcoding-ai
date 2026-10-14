@@ -205,19 +205,25 @@ class CompetencyEvaluator:
                 })
 
             # Phạt nộp quá dồn dập (< 30s giữa các lần nộp sai)
-            rapid_count = 0
-            for i in range(1, len(submissions)):
-                s_prev = submissions[i - 1]
-                s_curr = submissions[i]
-                if (
-                    s_prev.get("problem_id") == s_curr.get("problem_id")
-                    and s_prev.get("result") != "AC"
-                    and s_curr.get("date")
-                    and s_prev.get("date")
-                ):
-                    dt = (s_curr["date"] - s_prev["date"]).total_seconds()
-                    if 0 < dt < 30:
-                        rapid_count += 1
+            if any("rapid_failure_pair_count" in pdata for pdata in problems_map.values()):
+                rapid_count = sum(
+                    int(pdata.get("rapid_failure_pair_count", 0) or 0)
+                    for pdata in problems_map.values()
+                )
+            else:
+                rapid_count = 0
+                for i in range(1, len(submissions)):
+                    s_prev = submissions[i - 1]
+                    s_curr = submissions[i]
+                    if (
+                        s_prev.get("problem_id") == s_curr.get("problem_id")
+                        and s_prev.get("result") != "AC"
+                        and s_curr.get("date")
+                        and s_prev.get("date")
+                    ):
+                        dt = (s_curr["date"] - s_prev["date"]).total_seconds()
+                        if 0 < dt < 30:
+                            rapid_count += 1
             if rapid_count >= 2:
                 precision_mod -= 3.0
                 breakdown_items.append({

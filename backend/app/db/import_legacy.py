@@ -8,6 +8,7 @@ from sqlalchemy.pool import NullPool
 from app.core.config import settings
 from app.core.dashboard_database import DashboardBase
 from app.db.data_transfer import copy_table
+from app.db.offline_source_config import OfflineSourceSettings
 import app.models.dashboard
 
 
@@ -18,7 +19,8 @@ def main():
     args = parser.parse_args()
     if args.legacy_config_db and not re.fullmatch(r"[A-Za-z0-9_]{1,64}", args.legacy_config_db):
         parser.error("Invalid legacy database name")
-    source_engine = create_engine(settings.source_database_url.set(drivername="mysql+pymysql"), poolclass=NullPool)
+    source_settings = OfflineSourceSettings()
+    source_engine = create_engine(source_settings.database_url, poolclass=NullPool)
     target_engine = create_engine(settings.dashboard_migration_url, poolclass=NullPool)
     try:
         with source_engine.connect() as source, target_engine.begin() as target:

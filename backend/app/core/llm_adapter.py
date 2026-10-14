@@ -108,12 +108,16 @@ class LLMAdapter:
         self, prompt: str, system_prompt: str = 'You are an expert AI assistant.',
         temperature: Optional[float] = None, max_tokens: Optional[int] = None,
         top_p: Optional[float] = None, timeout_seconds: Optional[float] = None,
+        reasoning_effort: Optional[str] = None,
     ) -> str:
         timeout = self._timeout(timeout_seconds)
         try:
             async with asyncio.timeout(timeout):
+                arguments = self._arguments(prompt, system_prompt, temperature, max_tokens, top_p, timeout)
+                if reasoning_effort is not None:
+                    arguments['reasoning_effort'] = reasoning_effort
                 response = await self._complete(
-                    **self._arguments(prompt, system_prompt, temperature, max_tokens, top_p, timeout)
+                    **arguments
                 )
                 if response.choices[0].finish_reason == 'length':
                     raise ValueError('LLM token limit reached before completing the answer')

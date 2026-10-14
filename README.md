@@ -2,11 +2,12 @@
 
 Hệ thống Microservice AI Phân Tích Học Lực, Trợ Lý AI Code Doctor, Auto-Tagging & Màn Hình Admin Dashboard cho Nền tảng tmath Online Judge (DMOJ).
 
-Dashboard dùng hai kết nối database độc lập: DB gốc chỉ đọc và `tmath_dashboard`
-do dashboard quản lý bằng migration Alembic có phiên bản. Đọc
+Dashboard đọc dữ liệu nguồn qua Source API và dùng `tmath_dashboard` cho dữ liệu
+do dashboard quản lý bằng migration Alembic có phiên bản. Runtime backend không
+kết nối trực tiếp DB gốc. Đọc
 [hướng dẫn database và migration](backend/DB_ARCHITECTURE.md) trước khi cấu hình
-kết nối hoặc sửa schema. Profile `local-source` bên dưới dùng DB gốc local làm fixture;
-khi kết nối DB gốc bên ngoài, bỏ profile và cấu hình `SOURCE_DB_*`.
+kết nối hoặc sửa schema. Profile `local-source` bên dưới dùng DB gốc local làm
+fixture cho Source API mock; với provider bên ngoài, cấu hình `SOURCE_API_*`.
 
 ---
 
@@ -95,32 +96,19 @@ trước DDL để operator bổ sung kế hoạch ánh xạ; không tự ép ta
 Frontend thêm thư viện kéo thả, modal/menu và hiển thị Markdown/công thức.
 Chạy `npm ci` hoặc rebuild container frontend khi lấy phiên bản mới.
 
-## 🏗️ CẤU TRÚC DỰ ÁN (PROJECT STRUCTURE)
+## Cấu trúc dự án
 
 ```text
-tmathcoding/
-├── .env.example                  # Mẫu biến môi trường dự án
-├── .env                          # File cấu hình môi trường local chính
-├── docker-compose.yml            # Docker Compose Base Stack (DB, Redis, Ollama, Open WebUI, Backend, Frontend)
-├── docker-compose.gpu.yml        # NVIDIA CUDA GPU Extension Override (Siêu gọn - 10 dòng)
-├── docker-compose.rocm.yml       # AMD ROCm GPU Extension Override (Siêu gọn - 8 dòng)
-├── docs/                         # Thư mục chứa tài liệu đặc tả & thiết kế dự án
-│   ├── SOFTWARE_DESIGN_DOCUMENT.md   # Tài liệu Thiết kế SDD v3.1.0 chuẩn hóa
-│   └── FEATURE_1_TAG_ANALYTICS_SPEC.md # Đặc tả chi tiết Tính năng 1 (Tag Analytics & AI Diagnostic)
-├── backup/                       # Thư mục chứa 202 file SQL backup (10.1 GB)
-├── scripts/
-│   ├── pull_model.py             # Script nạp Model AI từ .env vào Docker Persistent Volume
-│   ├── seed_mysql.py             # Script tự động import 10.1 GB backup vào MySQL DB
-│   └── test_llm.py               # Script Chat CLI Interactive thử nghiệm kết nối LLM Engine
-├── backend/                      # Service FastAPI Backend AI API
-│   ├── app/
-│   │   ├── core/
-│   │   │   ├── config.py         # Nạp biến môi trường động & LLM Hyperparameters từ .env
-│   │   │   └── llm_adapter.py    # AsyncOpenAI/HTTPX cho Ollama, Instructor JSON; LiteLLM cho provider khác
-│   │   ├── services/
-│   │   └── main.py
-│   └── Dockerfile
-└── frontend/                     # React 18 + TypeScript + Vite Dashboard App
+tmathcoding-ai/
+├── .env.example             # Mẫu cấu hình chung
+├── backend/                 # Dashboard API, SourceGateway và migration
+├── source_api_mock/         # API nguồn mẫu cho profile local-source
+├── frontend/                # React, TypeScript và Vite
+├── scripts/                 # Seed fixture và công cụ vận hành cục bộ
+├── docs/                    # Đặc tả API nguồn và tài liệu thiết kế
+├── docker-compose.yml       # Stack cục bộ
+├── docker-compose.gpu.yml   # Cấu hình GPU NVIDIA
+└── docker-compose.rocm.yml  # Cấu hình GPU AMD
 ```
 
 ---
@@ -140,7 +128,7 @@ LLM_TEMPERATURE=0.2          # Độ sáng tạo (0.0: Chính xác/Phân tích c
 LLM_MAX_TOKENS=2048          # Số lượng token tối đa trong 1 câu trả lời
 LLM_TOP_P=0.95               # Nucleus sampling probability
 LLM_CONTEXT_WINDOW=8192      # Kích thước cửa sổ ngữ cảnh (Context Window / num_ctx)
-LLM_REQUEST_TIMEOUT_SECONDS=240 # Deadline mặc định, bao gồm retry; Code Doctor dùng 90s, auto-tag 240s
+LLM_REQUEST_TIMEOUT_SECONDS=240 # Deadline mặc định; Code Doctor dùng 145s, auto-tag 240s
 ```
 
 ---

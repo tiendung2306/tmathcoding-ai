@@ -35,12 +35,12 @@
 
 ## 1. TỔNG QUAN HỆ THỐNG (SYSTEM OVERVIEW)
 
-Hệ thống **tmath AI Diagnostic & Admin Dashboard** là dịch vụ microservice phát triển bằng **Python (FastAPI)** kết hợp **React Dashboard**, kết nối trực tiếp CSDL MySQL 8.0 gốc của tmath (10.1 GB).
+Hệ thống **tmath AI Diagnostic & Admin Dashboard** là dịch vụ microservice phát triển bằng **Python (FastAPI)** kết hợp **React Dashboard**. Runtime đọc dữ liệu tmath qua Source API; chỉ Source API mock cục bộ mới kết nối fixture MySQL bằng `SOURCE_DB_*`.
 
-Runtime chỉ đọc database gốc qua `SOURCE_DB_*`. Cấu hình dashboard, đề xuất AI,
-star và phiên học nằm trong `tmath_dashboard` qua kết nối `DASHBOARD_DB_*` độc lập.
-DDL chỉ chạy bằng Alembic với tài khoản migration riêng. Quy ước hiện hành nằm
-trong [DB_ARCHITECTURE.md](../backend/DB_ARCHITECTURE.md).
+Cấu hình dashboard, đề xuất AI, star và phiên học nằm trong `tmath_dashboard`
+qua kết nối `DASHBOARD_DB_*` độc lập. DDL chỉ chạy bằng Alembic với tài khoản
+migration riêng. Quy ước hiện hành nằm trong
+[DB_ARCHITECTURE.md](../backend/DB_ARCHITECTURE.md).
 
 ---
 

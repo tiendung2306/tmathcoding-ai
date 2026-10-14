@@ -22,7 +22,7 @@ export function LoginPage() {
       await login(username, password);
       const next = params.get('next');
       const target = next?.startsWith('/') && !next.startsWith('//') ? new URL(next, window.location.origin) : null;
-      const safeNext = target?.origin === window.location.origin ? `${target.pathname}${target.search}${target.hash}` : '/student/classes';
+      const safeNext = target?.origin === window.location.origin ? `${target.pathname}${target.search}${target.hash}` : '/student/students';
       window.location.assign(safeNext);
     } catch (cause) {
       setError(loginErrorMessage(cause));

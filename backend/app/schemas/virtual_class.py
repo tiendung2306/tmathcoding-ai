@@ -15,6 +15,11 @@ class LiveSubmissionItem(BaseModel):
     memory: Optional[float]
     source: Optional[str] = None
     ai_flags: dict = {}
+
+class LiveSubmissionEvent(BaseModel):
+    kind: str
+    submission_id: int
+    record: Optional[LiveSubmissionItem] = None
     
 class VirtualClassSessionItem(BaseModel):
     id: int
@@ -38,6 +43,8 @@ class VirtualClassStatus(BaseModel):
     started_at: Optional[datetime] = None
 
 class LiveSubmissionsResponse(BaseModel):
-    submissions: List[LiveSubmissionItem]
-    last_id: int
+    events: List[LiveSubmissionEvent]
+    cursor: Optional[str] = None
+    high_watermark: Optional[int] = None
+    snapshot: bool = False
     is_active: bool

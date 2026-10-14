@@ -141,6 +141,11 @@ class ResponseTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(await adapter.generate_text('test'), 'Final answer')
         self.assertTrue(self.transports[0].is_closed)
 
+    async def test_text_reasoning_effort_reaches_ollama_request(self):
+        adapter = self.adapter(['Final answer'])
+        self.assertEqual(await adapter.generate_text('test', reasoning_effort='none'), 'Final answer')
+        self.assertEqual(self.requests[0]['reasoning_effort'], 'none')
+
     async def test_reasoning_is_not_used_as_final_answer(self):
         with self.assertRaisesRegex(ValueError, 'no final answer'):
             await self.adapter(['']).generate_text('test')

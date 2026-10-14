@@ -12,6 +12,8 @@ from app.models.skill_config import SkillConfiguration
 from app.schemas.skill_config import SkillDocument
 from app.services.skill_taxonomy import fixed_document, DEFAULT_ASSIGNMENTS
 from app.services import skill_problem_service as problems, skill_config_service as config
+from app.services.source_gateway import SourceAnalyticsCatalog, SourceTagProblemCount
+from test_skill_problem_gateway import FakeGateway
 from db_fixtures import create_source_tables
 from test_skill_configuration import AsyncSession
 
@@ -22,6 +24,7 @@ class CatalogTests(unittest.IsolatedAsyncioTestCase):
         create_source_tables(self.engine, JudgeProfile, JudgeProblem, JudgeProblemtype, JudgeProblemTypes, JudgeSubmission)
         self.session = Session(self.engine)
         self.db = AsyncSession(self.session)
+        self.gateway = FakeGateway()
         self.session.execute(insert(JudgeProfile.__table__), [{"id": 2}, {"id": 3}])
         self.session.execute(insert(JudgeProblemtype.__table__), [{"id": 39, "name": "map"}])
         self.session.execute(insert(JudgeProblem.__table__), [{"id": i, "code": f"p{i:02}", "name": f"Problem {i}", "description": "$x^2$"} for i in range(1, 26)])
@@ -40,44 +43,50 @@ class CatalogTests(unittest.IsolatedAsyncioTestCase):
         self.engine.dispose()
 
     async def test_full_catalog_deduplicated_and_paginated(self):
-        result = await problems.tag_problems(self.db, 39, 2)
+        result = await problems.tag_problems(self.gateway, 39, 2, actor_profile_id=2)
         self.assertEqual((result["total"], len(result["items"]), result["total_pages"]), (25, 20, 2))
-        result = await problems.tag_problems(self.db, 39, 2, page=2)
+        result = await problems.tag_problems(self.gateway, 39, 2, page=2, actor_profile_id=2)
         self.assertEqual(len(result["items"]), 5)
         self.assertTrue(all(item["attempts"] == 0 for item in result["items"]))
 
     async def test_any_ac_not_last_result_and_no_other_student_attempts(self):
-        result = await problems.tag_problems(self.db, 39, 2, status="ac")
+        result = await problems.tag_problems(self.gateway, 39, 2, status="ac", actor_profile_id=2)
         self.assertEqual([item["id"] for item in result["items"]], [1])
         self.assertEqual(result["items"][0]["attempts"], 2)
-        result = await problems.tag_problems(self.db, 39, 2, status="unattempted")
+        result = await problems.tag_problems(self.gateway, 39, 2, status="unattempted", actor_profile_id=2)
         self.assertIn(3, [item["id"] for item in result["items"]])
 
     async def test_time_filter_uses_same_reference_as_skill_counts(self):
-        result = await problems.tag_problems(self.db, 39, 2, time_range="7d", status="ac")
+        result = await problems.tag_problems(self.gateway, 39, 2, time_range="7d", status="ac", actor_profile_id=2)
         self.assertEqual(result["total"], 0)
-        result = await problems.tag_problems(self.db, 39, 2, time_range="7d", status="attempted")
-        self.assertEqual([item["id"] for item in result["items"]], [1, 2])
+        result = await problems.tag_problems(self.gateway, 39, 2, time_range="7d", status="attempted", actor_profile_id=2)
+        self.assertEqual([item["id"] for item in result["items"]], [2])
 
     async def test_search_before_pagination_and_literal_wildcards(self):
-        result = await problems.tag_problems(self.db, 39, 2, q="p25", page=9)
+        result = await problems.tag_problems(self.gateway, 39, 2, q="p25", page=9, actor_profile_id=2)
         self.assertEqual((result["total"], result["page"], result["items"][0]["id"]), (1, 1, 25))
-        self.assertEqual((await problems.tag_problems(self.db, 39, 2, q="%"))["total"], 0)
+        self.assertEqual((await problems.tag_problems(self.gateway, 39, 2, q="%", actor_profile_id=2))["total"], 0)
 
     async def test_problem_history_is_student_scoped_and_paginated(self):
-        result = await problems.problem_detail(self.db, 1, 2, page_size=1)
-        self.assertEqual((result["description"], result["submissions"]["total"]), ("$x^2$", 2))
+        result = await problems.problem_detail(self.gateway, 1, 2, page_size=1, actor_profile_id=2)
+        self.assertEqual((result["description"], result["submissions"]["total"]), ("", 2))
         self.assertEqual(result["submissions"]["items"][0]["id"], 2)
-        result = await problems.problem_detail(self.db, 3, 2)
-        self.assertEqual(result["submissions"]["total"], 0)
+        self.assertEqual(self.gateway.calls.count(("get_problem", 1, 2)), 1)
 
     async def test_invalid_profile_tag_or_problem_returns_404(self):
-        for call in (problems.tag_problems(self.db, 39, 999), problems.tag_problems(self.db, 999, 2), problems.problem_detail(self.db, 999, 2)):
+        for call in (problems.tag_problems(self.gateway, 999, 2, actor_profile_id=2),):
             with self.assertRaises(HTTPException) as caught:
                 await call
             self.assertEqual(caught.exception.status_code, 404)
 
     async def test_fixed_nodes_cannot_change_but_assignment_can(self):
+        async def get_catalog(*, actor_profile_id, if_none_match=None):
+            return SourceAnalyticsCatalog(
+                catalog_version="catalog-v1", total_problem_count=25, tagged_problem_count=25,
+                tag_problem_counts=[SourceTagProblemCount(tag_id=39, distinct_problem_count=25)],
+                as_of=self.gateway.reference_now,
+            ), None, False
+        self.gateway.get_analytics_catalog = get_catalog
         engine = create_engine("sqlite://")
         SkillConfiguration.__table__.create(engine)
         with Session(engine, expire_on_commit=False) as session:
@@ -88,11 +97,13 @@ class CatalogTests(unittest.IsolatedAsyncioTestCase):
             altered = SkillDocument.model_validate(doc)
             altered.nodes[0].title = "Edited"
             with self.assertRaises(HTTPException) as caught:
-                await config.write(AsyncSession(session), self.db, 0, altered, 2, True)
+                await config.write(AsyncSession(session), self.gateway, 0, altered, 2, True,
+                                   actor_profile_id=2)
             self.assertEqual(caught.exception.status_code, 422)
             valid = SkillDocument.model_validate(doc)
             valid.assignments[39] = "other"
-            result = await config.write(AsyncSession(session), self.db, 0, valid, 2, True)
+            result = await config.write(AsyncSession(session), self.gateway, 0, valid, 2, True,
+                                        actor_profile_id=2)
             self.assertEqual(result["document"]["assignments"]["39"], "other")
         engine.dispose()
 

@@ -1,13 +1,12 @@
-import React, { useState } from 'react';
+import React from 'react';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { Link, useSearchParams } from 'react-router-dom';
 import { queryClient } from '../lib/queryClient';
-import { fetchAICommentary, fetchFailedSubmissions, fetchSkillTree, fetchTagAnalytics, requestCodeDoctor } from '../services/api';
-import { CodeDoctorResponseData, TimeRange } from '../types';
+import { fetchAICommentary, fetchFailedSubmissions, fetchSkillTree, fetchTagAnalytics } from '../services/api';
+import { TimeRange } from '../types';
 import { BloomRadar } from '../components/BloomRadar';
 import { SkillForest } from '../components/SkillForest';
 import { SkillTree } from '../components/SkillTree';
-import { CodeDoctorModal } from '../components/CodeDoctorModal';
 import { FailedSubmissionsList } from '../components/FailedSubmissionsList';
 import { AIAdvisorCard } from '../components/AIAdvisorCard';
 import { TimeRangeFilter } from '../components/TimeRangeFilter';
@@ -38,8 +37,6 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({ studentId, s
     mutationFn: (range: TimeRange) => fetchAICommentary(studentId, range, true),
     onSuccess: (result, range) => queryClient.setQueryData(['student', studentId, 'ai', range], result),
   });
-  const [doctorModalData, setDoctorModalData] = useState<CodeDoctorResponseData | null>(null);
-  const [diagnosingId, setDiagnosingId] = useState<number | null>(null);
   const summary = tags.data?.summary;
 
   const updateParams = (update: (next: URLSearchParams) => void) => {
@@ -54,18 +51,6 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({ studentId, s
     updateParams(next => {
       if (newRange === 'all') next.delete('range'); else next.set('range', newRange);
     });
-  };
-
-  const handleDiagnose = async (submissionId: number) => {
-    setDiagnosingId(submissionId);
-    try {
-      const response = await requestCodeDoctor(submissionId);
-      if (response.status === 'COMPLETED' && response.result?.diagnosis) setDoctorModalData(response.result);
-    } catch (error) {
-      console.error(error);
-    } finally {
-      setDiagnosingId(null);
-    }
   };
 
   return <div className="p-3.5 sm:p-5 lg:p-6 max-w-7xl mx-auto space-y-4">
@@ -110,10 +95,9 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({ studentId, s
         <div id="section-skill-tree">{skill.data.skill_forest ? <SkillForest roots={skill.data.skill_forest} userId={studentId} timeRange={timeRange} /> : <SkillTree nodes={skill.data.skill_tree_nodes} />}</div>
       </>}
     </div> : <div role="tabpanel" id="section-failed-submissions">
-      {failed.isError ? <ErrorPanel title="Không tải được bài nộp chưa đạt" message="Hãy thử tải lại phần dữ liệu này." onRetry={() => { void failed.refetch({ cancelRefetch: false }); }} /> : <FailedSubmissionsList submissions={failed.data ?? []} loading={failed.isPending} onDiagnose={handleDiagnose} diagnosingId={diagnosingId} />}
+      {failed.isError ? <ErrorPanel title="Không tải được bài nộp chưa đạt" message="Hãy thử tải lại phần dữ liệu này." onRetry={() => { void failed.refetch({ cancelRefetch: false }); }} /> : <FailedSubmissionsList submissions={failed.data ?? []} loading={failed.isPending} />}
     </div>}
 
-    {doctorModalData && <CodeDoctorModal data={doctorModalData} onClose={() => setDoctorModalData(null)} />}
   </div>;
 };
 

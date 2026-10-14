@@ -2,11 +2,11 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.core.config import settings
-from app.core.database import source_database
 from app.core.dashboard_database import dashboard_database
 from app.db.migrations import ensure_schema_current
 from app.core.redis import init_redis_pool, close_redis_pool, get_redis_client
 from app.core.job_manager import job_manager
+from app.services.source_gateway import close_source_gateway
 from app.api.v1.router import api_router
 
 @asynccontextmanager
@@ -23,7 +23,7 @@ async def lifespan(app: FastAPI):
         job_manager.stop_sweeper()
         await close_redis_pool()
         await dashboard_database.close()
-        await source_database.close()
+        await close_source_gateway()
 
 app = FastAPI(
     title=settings.PROJECT_NAME,

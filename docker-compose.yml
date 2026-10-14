@@ -11,8 +11,6 @@ services:
       DATABASE_ROLE: source
       DATABASE_APP_USER: ${SOURCE_DB_USER:-tmath_dashboard_reader}
       DATABASE_APP_PASSWORD: ${SOURCE_DB_PASSWORD:?Set SOURCE_DB_PASSWORD}
-    ports:
-      - "${SOURCE_DB_PUBLISHED_PORT:-3306}:3306"
     volumes:
       - data_mysql:/var/lib/mysql
       - ./docker/mysql/init-users.sh:/docker-entrypoint-initdb.d/10-users.sh:ro
@@ -21,6 +19,36 @@ services:
       interval: 5s
       timeout: 5s
       retries: 30
+    networks:
+      - source-data
+
+  source-api-mock:
+    build:
+      context: .
+      dockerfile: source_api_mock/Dockerfile
+    image: tmath-source-api-mock
+    profiles: [local-source]
+    command: ["uvicorn", "source_api_mock.main:app", "--host", "0.0.0.0", "--port", "8001"]
+    environment:
+      SOURCE_DB_HOST: db
+      SOURCE_DB_PORT: "3306"
+      SOURCE_DB_USER: ${SOURCE_DB_USER:-tmath_dashboard_reader}
+      SOURCE_DB_PASSWORD: ${SOURCE_DB_PASSWORD:-}
+      SOURCE_DB_NAME: ${SOURCE_DB_NAME:-dmoj}
+      SOURCE_API_TOKEN: ${SOURCE_API_TOKEN:-}
+      SOURCE_API_ALLOWED_ACTORS: ${SOURCE_API_ALLOWED_ACTORS:-*}
+      SOURCE_API_SOURCE_ACTORS: ${SOURCE_API_SOURCE_ACTORS:-*}
+      SOURCE_API_TESTCASE_ACTORS: ${SOURCE_API_TESTCASE_ACTORS:-*}
+    expose:
+      - "8001"
+    volumes:
+      - ./source_api_mock:/app/source_api_mock:ro
+    networks:
+      - source-data
+      - source-api
+    depends_on:
+      db:
+        condition: service_healthy
 
   dashboard-db:
     image: mysql:8.0
@@ -44,18 +72,23 @@ services:
       interval: 5s
       timeout: 5s
       retries: 30
+    networks:
+      - dashboard
 
   dashboard-migrate:
     build:
       context: ./backend
       dockerfile: Dockerfile
     image: tmath-dashboard-backend
-    env_file: [.env]
     environment:
-      MYSQL_USER: ""
-      MYSQL_PASSWORD: ""
-      SOURCE_FIXTURE_ROOT_PASSWORD: ""
-      DASHBOARD_ROOT_PASSWORD: ""
+      PROJECT_NAME: ${PROJECT_NAME:-tmath-dashboard}
+      DASHBOARD_DB_HOST: dashboard-db
+      DASHBOARD_DB_PORT: "3306"
+      DASHBOARD_DB_NAME: ${DASHBOARD_DB_NAME:-tmath_dashboard}
+      DASHBOARD_DB_USER: ${DASHBOARD_DB_USER:-tmath_dashboard_app}
+      DASHBOARD_DB_PASSWORD: ${DASHBOARD_DB_PASSWORD:?Set DASHBOARD_DB_PASSWORD}
+      DASHBOARD_MIGRATION_USER: ${DASHBOARD_MIGRATION_USER:-tmath_dashboard_migrator}
+      DASHBOARD_MIGRATION_PASSWORD: ${DASHBOARD_MIGRATION_PASSWORD:?Set DASHBOARD_MIGRATION_PASSWORD}
     volumes:
       - ./backend/app:/app/app:ro
       - ./backend/migrations:/app/migrations
@@ -64,6 +97,37 @@ services:
     depends_on:
       dashboard-db:
         condition: service_healthy
+    networks:
+      - dashboard
+
+  dashboard-legacy-import:
+    image: tmath-dashboard-backend
+    profiles: [offline-import]
+    environment:
+      PROJECT_NAME: ${PROJECT_NAME:-tmath-dashboard}
+      SOURCE_DB_HOST: ${SOURCE_DB_HOST:-db}
+      SOURCE_DB_PORT: ${SOURCE_DB_PORT:-3306}
+      SOURCE_DB_USER: ${SOURCE_DB_USER:?Set SOURCE_DB_USER for the one-time import}
+      SOURCE_DB_PASSWORD: ${SOURCE_DB_PASSWORD:?Set SOURCE_DB_PASSWORD for the one-time import}
+      SOURCE_DB_NAME: ${SOURCE_DB_NAME:-dmoj}
+      DASHBOARD_DB_HOST: dashboard-db
+      DASHBOARD_DB_PORT: "3306"
+      DASHBOARD_DB_NAME: ${DASHBOARD_DB_NAME:-tmath_dashboard}
+      DASHBOARD_DB_USER: ${DASHBOARD_MIGRATION_USER:-tmath_dashboard_migrator}
+      DASHBOARD_DB_PASSWORD: ${DASHBOARD_MIGRATION_PASSWORD:?Set DASHBOARD_MIGRATION_PASSWORD}
+      DASHBOARD_MIGRATION_USER: ${DASHBOARD_MIGRATION_USER:-tmath_dashboard_migrator}
+      DASHBOARD_MIGRATION_PASSWORD: ${DASHBOARD_MIGRATION_PASSWORD:?Set DASHBOARD_MIGRATION_PASSWORD}
+    volumes:
+      - ./backend/app:/app/app:ro
+      - ./backend/migrations:/app/migrations:ro
+      - ./backend/alembic.ini:/app/alembic.ini:ro
+    command: [python, -m, app.db.import_legacy]
+    depends_on:
+      dashboard-db:
+        condition: service_healthy
+    networks:
+      - dashboard
+      - source-data
 
   source-seed:
     image: tmath-dashboard-backend
@@ -82,6 +146,8 @@ services:
     volumes:
       - ./scripts:/scripts:ro
       - ./backup:/backup:ro
+    networks:
+      - source-data
 
   # 2. Redis Cache & Task Queue
   redis:
@@ -90,6 +156,8 @@ services:
     restart: always
     ports:
       - "${REDIS_PORT:-6379}:6379"
+    networks:
+      - dashboard
 
   # 3. Ollama LLM Engine Container (Loads OLLAMA_CONTEXT_LENGTH dynamically from .env variable LLM_CONTEXT_WINDOW)
   ollama:
@@ -102,6 +170,8 @@ services:
       - "11434:11434"
     volumes:
       - ollama_data:/root/.ollama
+    networks:
+      - dashboard
 
   # 4. Open WebUI (Reads OLLAMA_CONTEXT_LENGTH dynamically from .env variable LLM_CONTEXT_WINDOW)
   open-webui:
@@ -117,6 +187,8 @@ services:
       - open_webui_data:/app/backend/data
     depends_on:
       - ollama
+    networks:
+      - dashboard
 
   # 5. FastAPI Backend AI Microservice (Reads LLM_CONTEXT_WINDOW dynamically from .env)
   backend:
@@ -126,27 +198,37 @@ services:
     image: tmath-dashboard-backend
     container_name: tmath-backend
     restart: always
-    env_file:
-      - .env
     environment:
-      - LLM_BASE_URL=http://ollama:11434/v1
-      - DASHBOARD_MIGRATION_USER=
-      - DASHBOARD_MIGRATION_PASSWORD=
-      - DASHBOARD_ROOT_PASSWORD=
-      - MYSQL_USER=
-      - MYSQL_PASSWORD=
-      - SOURCE_FIXTURE_ROOT_PASSWORD=
-      - REDIS_HOST=redis
-      - REDIS_PORT=6379
+      PROJECT_NAME: ${PROJECT_NAME:-tmath-dashboard}
+      API_V1_STR: ${API_V1_STR:-/api/v1}
+      DASHBOARD_ADMIN_PROFILE_ID: ${DASHBOARD_ADMIN_PROFILE_ID:-2}
+      SOURCE_API_BASE_URL: ${SOURCE_API_BASE_URL:?Set SOURCE_API_BASE_URL}
+      SOURCE_API_TOKEN: ${SOURCE_API_TOKEN:?Set SOURCE_API_TOKEN}
+      SOURCE_API_TIMEOUT_SECONDS: ${SOURCE_API_TIMEOUT_SECONDS:-8}
+      DASHBOARD_DB_HOST: dashboard-db
+      DASHBOARD_DB_PORT: "3306"
+      DASHBOARD_DB_NAME: ${DASHBOARD_DB_NAME:-tmath_dashboard}
+      DASHBOARD_DB_USER: ${DASHBOARD_DB_USER:-tmath_dashboard_app}
+      DASHBOARD_DB_PASSWORD: ${DASHBOARD_DB_PASSWORD:?Set DASHBOARD_DB_PASSWORD}
+      AUTH_COOKIE_SECURE: ${AUTH_COOKIE_SECURE:-false}
+      REDIS_HOST: redis
+      REDIS_PORT: "6379"
+      LLM_PROVIDER: ${LLM_PROVIDER:-openai_compatible}
+      LLM_BASE_URL: http://ollama:11434/v1
+      LLM_API_KEY: ${LLM_API_KEY:-ollama}
+      LLM_MODEL: ${LLM_MODEL:-hf.co/empero-ai/Qwen3.8-4B-GGUF:Q4_K_M}
+      LLM_TEMPERATURE: ${LLM_TEMPERATURE:-0.2}
+      LLM_MAX_TOKENS: ${LLM_MAX_TOKENS:-2048}
+      LLM_TOP_P: ${LLM_TOP_P:-0.95}
+      LLM_CONTEXT_WINDOW: ${LLM_CONTEXT_WINDOW:-8192}
+      LLM_REQUEST_TIMEOUT_SECONDS: ${LLM_REQUEST_TIMEOUT_SECONDS:-240}
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:5173}
     ports:
       - "8000:8000"
     volumes:
       - ./backend/app:/app/app
       - ./backend/migrations:/app/migrations:ro
       - ./backend/alembic.ini:/app/alembic.ini:ro
-      - ./scripts:/scripts
-      - ./backup:/app/backup
-      - ./backup:/backup
     depends_on:
       dashboard-migrate:
         condition: service_completed_successfully
@@ -154,6 +236,9 @@ services:
         condition: service_started
       ollama:
         condition: service_started
+    networks:
+      - dashboard
+      - source-api
 
   # 6. React Frontend Dashboard
   frontend:
@@ -172,9 +257,17 @@ services:
       - /app/node_modules
     depends_on:
       - backend
+    networks:
+      - dashboard
 
 volumes:
   data_mysql:
   dashboard_mysql:
   ollama_data:
   open_webui_data:
+
+networks:
+  dashboard:
+  source-data:
+    internal: true
+  source-api:

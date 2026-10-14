@@ -1,7 +1,6 @@
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Dict, Optional, List
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.llm_adapter import llm_adapter
 from app.core.redis import cache_get, cache_set, cache_delete
@@ -12,6 +11,7 @@ from app.schemas.analytics import (
     StudentTagAnalyticsResponse
 )
 from app.services.tag_analytics_service import TagAnalyticsService
+from app.services.source_gateway import SourceGateway
 
 logger = logging.getLogger(__name__)
 
@@ -40,7 +40,7 @@ class TagAIService:
         time_range: str = "all",
     ) -> Optional[AICommentaryResponse]:
         """Return today's saved commentary without collecting data or calling the LLM."""
-        today_str = datetime.utcnow().strftime("%Y-%m-%d")
+        today_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
         redis_key = f"tmath:ai_commentary:{user_id}:{time_range}:{today_str}"
         mem_cache_key = f"{user_id}_{time_range}_{today_str}"
 
@@ -62,11 +62,12 @@ class TagAIService:
     async def get_daily_ai_commentary(
         self,
         user_id: int,
-        db: AsyncSession,
+        source: SourceGateway,
         time_range: str = "all",
-        force_refresh: bool = False
+        force_refresh: bool = False,
+        *, actor_profile_id: int,
     ) -> AICommentaryResponse:
-        today_str = datetime.utcnow().strftime("%Y-%m-%d")
+        today_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
         redis_key = f"tmath:ai_commentary:{user_id}:{time_range}:{today_str}"
         mem_cache_key = f"{user_id}_{time_range}_{today_str}"
 
@@ -82,7 +83,7 @@ class TagAIService:
 
         # Fetch Tag statistics according to time_range
         analytics: StudentTagAnalyticsResponse = await TagAnalyticsService.get_student_tag_analytics(
-            user_id, db, time_range=time_range
+            user_id, source, time_range=time_range, actor_profile_id=actor_profile_id,
         )
 
         range_label = RANGE_LABELS.get(time_range, "thời gian qua")
@@ -160,7 +161,7 @@ class TagAIService:
                 active_tags=active_tags_names
             ),
             recommended_tags=recommended,
-            generated_at=datetime.utcnow().isoformat() + "Z"
+            generated_at=datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
         )
 
         # Cache response in Redis (24h TTL) and local memory fallback

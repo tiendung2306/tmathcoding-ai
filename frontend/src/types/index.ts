@@ -113,7 +113,7 @@ export interface JobCreateResponseData {
   job_id: string;
   status: JobStatus;
   message: string;
-  result?: any;
+  result?: CodeDoctorResponseData;
 }
 
 export interface JobStatusResponseData {
@@ -121,7 +121,7 @@ export interface JobStatusResponseData {
   job_type: string;
   status: JobStatus;
   progress: number;
-  result?: any;
+  result?: CodeDoctorResponseData;
   error?: string | null;
   created_at: string;
   updated_at: string;
@@ -267,11 +267,11 @@ export interface ClassSummaryData {
   school_year: string | null;
   managers: { id: number; name: string }[];
   creation_date: string | null;
-  last_session_at: string | null;
+  is_active: boolean;
   starred_at: string | null;
 }
 
-export type ClassSortField = 'creation_date' | 'name' | 'member_count' | 'id' | 'last_session_at';
+export type ClassSortField = 'creation_date' | 'name' | 'member_count' | 'id';
 export type SortOrder = 'asc' | 'desc';
 
 export interface ClassListQuery {

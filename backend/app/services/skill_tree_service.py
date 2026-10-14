@@ -1,106 +1,120 @@
-from typing import Dict
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func
-from app.models.dmoj import JudgeSubmission, JudgeProblemTypes, JudgeProblemtype, JudgeProfile
+from fastapi import HTTPException
+
 from app.schemas.student import SkillTreeResponse, SkillTreeNode, AlgorithmRadar
 from app.services.algorithm_competency_service import algorithm_competency_service
-from fastapi import HTTPException
+from app.services.source_gateway import SourceGateway
+
+
+BENCHMARKS = {"all": 10.0, "1d": 10.0, "7d": 2.0, "30d": 4.0, "1y": 8.0}
+
 
 class SkillTreeService:
     @staticmethod
+    async def _all_tags(source: SourceGateway, actor_profile_id: int):
+        tags = []
+        cursor = None
+        seen: set[str] = set()
+        version = None
+        while True:
+            page, _etag, not_modified = await source.list_tags(
+                actor_profile_id=actor_profile_id, cursor=cursor, limit=100,
+            )
+            if not_modified or page is None:
+                raise HTTPException(502, "Dịch vụ dữ liệu nguồn không trả danh sách tag.")
+            if page.catalog_version is None:
+                raise HTTPException(502, "Dịch vụ dữ liệu nguồn thiếu phiên bản danh mục tag.")
+            if version is None:
+                version = page.catalog_version
+            elif version != page.catalog_version:
+                raise HTTPException(409, "Danh mục đã thay đổi trong lúc tải cây kỹ năng.")
+            tags.extend(page.items)
+            if not page.has_more:
+                return tags, version
+            cursor = page.next_cursor
+            if not cursor or cursor in seen:
+                raise HTTPException(502, "Dịch vụ dữ liệu nguồn trả phân trang tag không hợp lệ.")
+            seen.add(cursor)
+
+    @staticmethod
     async def get_student_skill_tree(
         user_id: int,
-        db: AsyncSession,
+        source: SourceGateway,
         time_range: str = "all",
-        dashboard_db: AsyncSession = None,
+        dashboard_db=None,
+        *, actor_profile_id: int,
     ) -> SkillTreeResponse:
-        # Fetch profile
-        prof_stmt = select(JudgeProfile).where(JudgeProfile.id == user_id)
-        prof_res = await db.execute(prof_stmt)
-        profile = prof_res.scalar_one_or_none()
-        student_name = (profile.name or f"User {user_id}") if profile else f"User {user_id}"
-
-        # Xác định cutoff date theo mốc thời gian
-        ref_now = await algorithm_competency_service.get_reference_now(db)
-        cutoff_date = algorithm_competency_service.get_cutoff_date(time_range, ref_now)
+        profile = await source.get_student(user_id, actor_profile_id=actor_profile_id)
+        initial = await source.aggregate_students(
+            [user_id], actor_profile_id=actor_profile_id, tag_groups=[],
+        )
+        cutoff = algorithm_competency_service.get_cutoff_date(
+            time_range, initial.reference_now,
+        )
+        aggregate = initial
+        if cutoff is not None:
+            aggregate = await source.aggregate_students(
+                [user_id], actor_profile_id=actor_profile_id, date_from=cutoff,
+                date_to=None, tag_groups=[],
+            )
+            if (aggregate.catalog_version != initial.catalog_version
+                    or aggregate.reference_now != initial.reference_now):
+                raise HTTPException(409, "Danh mục hoặc mốc dữ liệu đã thay đổi trong lúc tải cây kỹ năng.")
+        student = next((item for item in aggregate.students if item.profile_id == user_id), None)
+        if student is None:
+            raise HTTPException(502, "Dịch vụ dữ liệu nguồn thiếu thống kê học sinh.")
+        tags, tags_version = await SkillTreeService._all_tags(source, actor_profile_id)
+        if tags_version != aggregate.catalog_version:
+            raise HTTPException(409, "Danh mục đã thay đổi trong lúc tải cây kỹ năng.")
 
         if dashboard_db is not None:
             from app.services.skill_config_service import configuration, preview
             from app.schemas.skill_config import SkillDocument
             config = await configuration(dashboard_db)
             if config.published is not None:
-                forest = await preview(SkillDocument.model_validate(config.published), db, user_id, cutoff_date)
-                return SkillTreeResponse(user_id=user_id, student_name=student_name, time_range=time_range,
-                    bloom_radar=AlgorithmRadar(time_range=time_range,
-                        axes=[{"key": root["id"], "title": root["title"],
-                               "ac_count": root["ac_count"], "attempted_count": root["attempted_count"],
-                               "problem_count": root["problem_count"]} for root in forest["roots"]]),
-                    skill_tree_nodes=[], skill_forest=forest["roots"],
-                    configuration_version=config.published_version, scoring=forest["scoring"])
-
-        # Fetch solved problems by topic in the selected time range
-        stmt = (
-            select(
-                JudgeProblemTypes.problemtype_id,
-                func.count(func.distinct(JudgeSubmission.problem_id)).label("ac_count")
-            )
-            .join(JudgeSubmission, JudgeSubmission.problem_id == JudgeProblemTypes.problem_id)
-            .where(JudgeSubmission.user_id == user_id, JudgeSubmission.result == "AC")
-        )
-        if cutoff_date:
-            stmt = stmt.where(JudgeSubmission.date >= cutoff_date)
-
-        stmt = stmt.group_by(JudgeProblemTypes.problemtype_id)
-        res = await db.execute(stmt)
-        topic_ac_map = {row.problemtype_id: row.ac_count for row in res.all()}
-
-        # Fetch all 99 topics
-        topics_stmt = select(JudgeProblemtype).order_by(JudgeProblemtype.id)
-        topics_res = await db.execute(topics_stmt)
-        all_topics = topics_res.scalars().all()
-
-        # Benchmark mục tiêu theo mốc thời gian
-        benchmark_target = 10.0
-        if time_range == "7d":
-            benchmark_target = 2.0
-        elif time_range == "30d":
-            benchmark_target = 4.0
-        elif time_range == "1y":
-            benchmark_target = 8.0
-
-        nodes = []
-        for t in all_topics:
-            ac_count = topic_ac_map.get(t.id, 0)
-            mastery = min(100.0, (ac_count / benchmark_target) * 100.0)
-            
-            status = "LOCKED"
-            if mastery >= 75.0:
-                status = "GREEN"
-            elif mastery >= 25.0:
-                status = "YELLOW"
-            elif ac_count > 0:
-                status = "RED"
-                
-            nodes.append(
-                SkillTreeNode(
-                    topic_id=t.id,
-                    key=t.name or f"T{t.id}",
-                    name=t.full_name or t.name or f"Topic {t.id}",
-                    category="Chủ đề",
-                    mastery_score=round(mastery, 1),
-                    status=status
+                forest = await preview(
+                    SkillDocument.model_validate(config.published), source, user_id, cutoff,
+                    actor_profile_id=actor_profile_id,
                 )
-            )
+                radar = AlgorithmRadar(time_range=time_range, axes=[{
+                    "key": root["id"], "title": root["title"],
+                    "ac_count": root["ac_count"], "attempted_count": root["attempted_count"],
+                    "problem_count": root["problem_count"],
+                } for root in forest["roots"]])
+                return SkillTreeResponse(
+                    user_id=user_id, student_name=profile.name or f"User {user_id}",
+                    time_range=time_range, bloom_radar=radar, skill_tree_nodes=[],
+                    skill_forest=forest["roots"],
+                    configuration_version=config.published_version, scoring=forest["scoring"],
+                )
 
-        # Tính điểm Radar 8 Trụ cột Thuật toán thật theo mốc thời gian
-        radar = await algorithm_competency_service.get_student_radar(user_id, time_range, db)
-
+        tag_counts = {item.tag_id: item.solved_unique_count for item in student.tag_stats}
+        target = BENCHMARKS.get(time_range, BENCHMARKS["all"])
+        nodes = []
+        for tag in tags:
+            count = tag_counts.get(tag.tag_id, 0)
+            mastery = min(100.0, count / target * 100.0) if target else 0.0
+            status = "LOCKED"
+            if mastery >= 75:
+                status = "GREEN"
+            elif mastery >= 25:
+                status = "YELLOW"
+            elif count > 0:
+                status = "RED"
+            nodes.append(SkillTreeNode(
+                topic_id=tag.tag_id,
+                key=tag.key or f"T{tag.tag_id}",
+                name=tag.title or tag.key or f"Topic {tag.tag_id}",
+                category="Chủ đề",
+                mastery_score=round(mastery, 1),
+                status=status,
+            ))
+        radar = await algorithm_competency_service.get_student_radar(
+            user_id, time_range, source, dashboard_db,
+            actor_profile_id=actor_profile_id,
+        )
         return SkillTreeResponse(
-            user_id=user_id,
-            student_name=student_name,
-            time_range=time_range,
-            bloom_radar=radar,
-            skill_tree_nodes=nodes
+            user_id=user_id, student_name=profile.name or f"User {user_id}",
+            time_range=time_range, bloom_radar=radar, skill_tree_nodes=nodes,
         )
 
 

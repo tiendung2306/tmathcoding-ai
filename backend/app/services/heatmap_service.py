@@ -1,359 +1,207 @@
-from datetime import datetime, timedelta
-from hashlib import md5
-from typing import Dict, List, Optional, Tuple
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func
+from datetime import timedelta
+from typing import Dict, List
+
 from fastapi import HTTPException
 
-from app.models.dmoj import (
-    JudgeSubmission,
-    JudgeProblem,
-    JudgeProfile,
-    JudgeOrganization,
-    JudgeProfileOrganizations,
-    AuthUser,
-)
 from app.schemas.teacher import (
     ClassHeatmapResponse,
-    HeatmapStudentRow,
+    ClassStudentItem,
     StudentBloomScore,
     StudentDetailResponse,
     StudentDetailSummary,
-    ClassStudentItem,
 )
-
 from app.services.algorithm_competency_service import (
-    algorithm_competency_service,
+    AlgorithmCompetencyService,
     PILLAR_KEYS,
+    PILLAR_DISPLAY_LABELS,
 )
+from app.services.source_gateway import SourceGateway, SourceTagGroupRequest
 
-# Mapping Bloom theo dữ liệu THẬT của tmath (bảng judge_problemgroup):
-# (4,"01","Mức độ A - Nhớ") ... (13,"mucdoF","Mức độ F - Đặc biệt")
-BLOOM_GROUP_MAP: Dict[int, str] = {4: "A", 5: "B", 6: "C", 7: "D", 8: "E", 13: "F"}
-BLOOM_ORDER: List[str] = ["A", "B", "C", "D", "E", "F"]
-BLOOM_LABELS: Dict[str, str] = {
-    "A": "Bloom A (Nhớ)",
-    "B": "Bloom B (Hiểu)",
-    "C": "Bloom C (Vận dụng)",
-    "D": "Bloom D (Phân tích)",
-    "E": "Bloom E (Đánh giá)",
-    "F": "Bloom F (Đặc biệt)",
-}
 
-PILLAR_DISPLAY_LABELS: Dict[str, str] = {
-    "quy_hoach_dong": "Quy hoạch động (DP)",
-    "cau_truc_du_lieu": "Cấu trúc dữ liệu (DS)",
-    "xu_ly_xau": "Xử lý xâu",
-    "ham_co_ban": "Hàm & Cơ bản",
-    "toan_hoc": "Toán học & Số học",
-    "hinh_hoc": "Hình học tính toán",
-    "do_thi": "Lý thuyết đồ thị",
-    "tham_lam": "Thuật toán tham lam",
-}
-STUCK_THRESHOLD = 8  # >= 8 lượt nộp sai trên cùng 1 bài trong 24h
-INACTIVE_DAYS = 7    # > 7 ngày không nộp bài
+INACTIVE_DAYS = 7
 
 
 class HeatmapService:
-    """F2.1: Class Performance Heatmap 2D (điểm Bloom) + F2.2: Student Detail."""
+    """Assemble class and student views from source API snapshots."""
 
     @staticmethod
-    async def _get_bloom_totals(db: AsyncSession) -> Dict[str, int]:
-        """Tổng số bài tập theo từng mức Bloom trong hệ thống."""
-        stmt = (
-            select(JudgeProblem.group_id, func.count(func.distinct(JudgeProblem.id)))
-            .where(JudgeProblem.group_id.in_(list(BLOOM_GROUP_MAP.keys())))
-            .group_by(JudgeProblem.group_id)
+    async def get_class_heatmap(
+        org_id: int,
+        time_range: str,
+        source: SourceGateway,
+        dashboard_db=None,
+        *, actor_profile_id: int,
+    ) -> ClassHeatmapResponse:
+        return await AlgorithmCompetencyService.get_class_competency_heatmap(
+            org_id, time_range, source, dashboard_db, actor_profile_id=actor_profile_id,
         )
-        res = await db.execute(stmt)
-        return {BLOOM_GROUP_MAP[row.group_id]: row[1] for row in res.all()}
 
     @staticmethod
-    async def _get_member_ids(db: AsyncSession, org_id: int) -> List[int]:
-        stmt = select(JudgeProfileOrganizations.profile_id).where(
-            JudgeProfileOrganizations.organization_id == org_id
+    async def get_student_detail(
+        student_id: int,
+        source: SourceGateway,
+        time_range: str = "all",
+        dashboard_db=None,
+        *, actor_profile_id: int,
+    ) -> StudentDetailResponse:
+        profile = await source.get_student(student_id, actor_profile_id=actor_profile_id)
+        groups = AlgorithmCompetencyService._tag_groups()
+        baseline = await source.aggregate_students(
+            [student_id], actor_profile_id=actor_profile_id, tag_groups=groups,
         )
-        res = await db.execute(stmt)
-        return [row[0] for row in res.all()]
-
-    @staticmethod
-    def _get_gravatar_url(email: Optional[str]) -> Optional[str]:
-        """Tmath renders profile pictures with Gravatar's normalized email hash."""
-        if not email or not email.strip():
-            return None
-        email_hash = md5(email.strip().lower().encode("utf-8")).hexdigest()
-        return f"https://www.gravatar.com/avatar/{email_hash}?d=identicon&s=200"
-
-    @staticmethod
-    async def _get_ac_counts_by_bloom(db: AsyncSession, member_ids: List[int]) -> Dict[int, Dict[str, int]]:
-        """Số bài AC duy nhất của từng học sinh theo từng mức Bloom: {user_id: {bloom: count}}."""
-        if not member_ids:
-            return {}
-        stmt = (
-            select(
-                JudgeSubmission.user_id,
-                JudgeProblem.group_id,
-                func.count(func.distinct(JudgeSubmission.problem_id)),
+        reference_now = baseline.reference_now
+        cutoff = AlgorithmCompetencyService.get_cutoff_date(time_range, reference_now)
+        period = baseline
+        if cutoff is not None:
+            period = await source.aggregate_students(
+                [student_id], actor_profile_id=actor_profile_id, date_from=cutoff,
+                date_to=None, tag_groups=groups,
             )
-            .join(JudgeProblem, JudgeProblem.id == JudgeSubmission.problem_id)
-            .where(
-                JudgeSubmission.user_id.in_(member_ids),
-                JudgeSubmission.result == "AC",
-                JudgeProblem.group_id.in_(list(BLOOM_GROUP_MAP.keys())),
-            )
-            .group_by(JudgeSubmission.user_id, JudgeProblem.group_id)
+            if (period.catalog_version != baseline.catalog_version
+                    or period.reference_now != reference_now):
+                raise HTTPException(409, "Danh mục hoặc mốc dữ liệu đã thay đổi trong lúc tải; hãy thử lại.")
+        aggregate = next((item for item in period.students if item.profile_id == student_id), None)
+        if aggregate is None:
+            raise HTTPException(502, "Dịch vụ dữ liệu nguồn thiếu thống kê học sinh.")
+
+        radar = await AlgorithmCompetencyService.get_student_radar(
+            student_id, time_range, source, dashboard_db, actor_profile_id=actor_profile_id,
         )
-        res = await db.execute(stmt)
-        out: Dict[int, Dict[str, int]] = {}
-        for row in res.all():
-            out.setdefault(row.user_id, {})[BLOOM_GROUP_MAP[row.group_id]] = row[2]
-        return out
-
-    @staticmethod
-    async def _get_alerts(
-        db: AsyncSession, member_ids: List[int]
-    ) -> Tuple[Dict[int, List[str]], Dict[int, Optional[str]]]:
-        """Cảnh báo thật từ lịch sử nộp bài:
-        - INACTIVE: không nộp bài nào trong INACTIVE_DAYS ngày gần nhất
-        - STUCK: >= STUCK_THRESHOLD lượt nộp sai trên CÙNG 1 bài trong 24h qua"""
-        alerts: Dict[int, List[str]] = {uid: [] for uid in member_ids}
-        last_sub: Dict[int, Optional[str]] = {uid: None for uid in member_ids}
-        if not member_ids:
-            return alerts, last_sub
-
-        stmt = (
-            select(JudgeSubmission.user_id, func.max(JudgeSubmission.date))
-            .where(JudgeSubmission.user_id.in_(member_ids))
-            .group_by(JudgeSubmission.user_id)
-        )
-        res = await db.execute(stmt)
-        now = datetime.utcnow()
-        for uid, last_date in res.all():
-            if last_date:
-                last_sub[uid] = last_date.isoformat()
-                if now - last_date > timedelta(days=INACTIVE_DAYS):
-                    alerts[uid].append("INACTIVE")
-        for uid in member_ids:
-            if last_sub[uid] is None:
-                alerts[uid].append("INACTIVE")
-
-        stuck_stmt = (
-            select(JudgeSubmission.user_id)
-            .where(
-                JudgeSubmission.user_id.in_(member_ids),
-                JudgeSubmission.date >= now - timedelta(days=1),
-                JudgeSubmission.result != "AC",
-            )
-            .group_by(JudgeSubmission.user_id, JudgeSubmission.problem_id)
-            .having(func.count(JudgeSubmission.id) >= STUCK_THRESHOLD)
-        )
-        res = await db.execute(stuck_stmt)
-        for uid in res.all():
-            if "STUCK" not in alerts[uid[0]]:
-                alerts[uid[0]].append("STUCK")
-
-        return alerts, last_sub
-
-    @staticmethod
-    def _has_gap_alert(ac_by_bloom: Dict[str, int], bloom_totals: Dict[str, int]) -> bool:
-        """GAP - hổng nền tảng: đã AC được bài ở mức Bloom cao hơn nhưng mức NGAY DƯỚI
-        vẫn 0 AC (và mức dưới còn bài tập để làm)."""
-        for i in range(1, len(BLOOM_ORDER)):
-            higher, lower = BLOOM_ORDER[i], BLOOM_ORDER[i - 1]
-            if (
-                ac_by_bloom.get(higher, 0) > 0
-                and bloom_totals.get(lower, 0) > 0
-                and ac_by_bloom.get(lower, 0) == 0
-            ):
-                return True
-        return False
-
-    @staticmethod
-    async def get_class_heatmap(org_id: int, db: AsyncSession) -> ClassHeatmapResponse:
-        """F2.1: Heatmap 2D của lớp: điểm Bloom = (bài AC duy nhất / tổng bài mức đó) * 100."""
-        org = (
-            await db.execute(select(JudgeOrganization).where(JudgeOrganization.id == org_id))
-        ).scalar_one_or_none()
-        if not org:
-            raise HTTPException(status_code=404, detail=f"Organization {org_id} not found.")
-
-        member_ids = await HeatmapService._get_member_ids(db, org_id)
-        profiles: Dict[int, str] = {}
-        if member_ids:
-            res = await db.execute(
-                select(JudgeProfile.id, JudgeProfile.name)
-                .where(JudgeProfile.id.in_(member_ids))
-                .order_by(JudgeProfile.id)
-            )
-            profiles = {row.id: (row.name or f"User {row.id}") for row in res.all()}
-
-        bloom_totals = await HeatmapService._get_bloom_totals(db)
-        ac_map = await HeatmapService._get_ac_counts_by_bloom(db, member_ids)
-        alerts, _ = await HeatmapService._get_alerts(db, member_ids)
-
-        columns = [BLOOM_LABELS[b] for b in BLOOM_ORDER]
-        rows: List[HeatmapStudentRow] = []
-        col_sums = [0.0] * len(columns)
-
-        for uid in sorted(profiles.keys()):
-            ac_by_bloom = ac_map.get(uid, {})
-            scores: List[float] = []
-            for idx, bloom in enumerate(BLOOM_ORDER):
-                total = bloom_totals.get(bloom, 0)
-                ac = ac_by_bloom.get(bloom, 0)
-                score = round(ac / total * 100.0, 1) if total > 0 else 0.0
-                scores.append(score)
-                col_sums[idx] += score
-
-            student_alerts = alerts.get(uid, [])
-            if HeatmapService._has_gap_alert(ac_by_bloom, bloom_totals) and "GAP" not in student_alerts:
-                student_alerts.append("GAP")
-
-            rows.append(
-                HeatmapStudentRow(
-                    user_id=uid,
-                    student_name=profiles[uid],
-                    scores=scores,
-                    alerts=student_alerts,
+        if radar.axes is not None:
+            bloom_scores = [
+                StudentBloomScore(
+                    group_id=index + 1,
+                    label=axis["title"],
+                    score=axis["ac_count"],
                 )
-            )
+                for index, axis in enumerate(radar.axes)
+            ]
+            metric = "ac_count"
+        else:
+            bloom_scores = [
+                StudentBloomScore(
+                    group_id=index + 1,
+                    label=PILLAR_DISPLAY_LABELS.get(key, key),
+                    score=getattr(radar, key, 0.0),
+                )
+                for index, key in enumerate(PILLAR_KEYS)
+            ]
+            metric = "score"
 
-        n = len(rows)
-        averages = [round(s / n, 1) if n > 0 else 0.0 for s in col_sums]
-
-        return ClassHeatmapResponse(
-            organization_id=org_id,
-            organization_name=org.name or f"Lớp #{org_id}",
-            columns=columns,
-            students=rows,
-            class_averages=averages,
+        catalog, _etag, not_modified = await source.get_analytics_catalog(
+            actor_profile_id=actor_profile_id,
         )
+        if not_modified or catalog is None:
+            raise HTTPException(502, "Dịch vụ dữ liệu nguồn không trả danh mục analytics.")
+        if catalog.catalog_version != baseline.catalog_version:
+            raise HTTPException(409, "Danh mục đã thay đổi trong lúc tải; hãy thử lại.")
 
-    @staticmethod
-    async def get_student_detail(student_id: int, db: AsyncSession, time_range: str = "all", dashboard_db: AsyncSession = None) -> StudentDetailResponse:
-        """F2.2: Chi tiết học sinh: profile + lớp học + điểm năng lực 8 trụ cột thuật toán + cảnh báo + thống kê."""
-        profile = (
-            await db.execute(select(JudgeProfile).where(JudgeProfile.id == student_id))
-        ).scalar_one_or_none()
-        if not profile:
-            raise HTTPException(status_code=404, detail=f"Student {student_id} not found.")
-
-        username: Optional[str] = None
-        if profile.user_id:
-            username = (
-                await db.execute(select(AuthUser.username).where(AuthUser.id == profile.user_id))
-            ).scalar_one_or_none()
-
-        orgs_res = await db.execute(
-            select(JudgeOrganization.name)
-            .join(JudgeProfileOrganizations, JudgeProfileOrganizations.organization_id == JudgeOrganization.id)
-            .where(JudgeProfileOrganizations.profile_id == student_id)
-            .order_by(JudgeOrganization.id)
+        at = reference_now or baseline.as_of
+        if at is None:
+            raise HTTPException(502, "Dịch vụ dữ liệu nguồn thiếu mốc thời gian snapshot.")
+        alerts_response = await source.get_student_alerts(
+            [student_id], actor_profile_id=actor_profile_id, at=at,
         )
-        organizations = [row[0] for row in orgs_res.all()]
-
-        alerts, last_sub = await HeatmapService._get_alerts(db, [student_id])
-
-        # Tính điểm năng lực 8 trụ cột thuật toán theo mốc thời gian
-        radar = await algorithm_competency_service.get_student_radar(student_id, time_range, db, dashboard_db)
-        bloom_scores = [StudentBloomScore(group_id=idx + 1, label=axis["title"], score=axis["ac_count"])
-                        for idx, axis in enumerate(radar.axes)] if radar.axes is not None else [
-            StudentBloomScore(
-                group_id=idx + 1,
-                label=PILLAR_DISPLAY_LABELS.get(k, k),
-                score=getattr(radar, k, 0.0)
-            )
-            for idx, k in enumerate(PILLAR_KEYS)
-        ]
-
-        total_problems = (
-            await db.execute(select(func.count(func.distinct(JudgeProblem.id))))
-        ).scalar_one() or 0
-
-        ref_now = await algorithm_competency_service.get_reference_now(db)
-        cutoff = algorithm_competency_service.get_cutoff_date(time_range, ref_now)
-
-        solved_stmt = select(func.count(func.distinct(JudgeSubmission.problem_id))).where(
-            JudgeSubmission.user_id == student_id,
-            JudgeSubmission.result == "AC"
-        )
-        if cutoff:
-            solved_stmt = solved_stmt.where(JudgeSubmission.date >= cutoff)
-        solved = (await db.execute(solved_stmt)).scalar_one() or 0
-
-        subs_period_stmt = select(func.count(JudgeSubmission.id)).where(JudgeSubmission.user_id == student_id)
-        if cutoff:
-            subs_period_stmt = subs_period_stmt.where(JudgeSubmission.date >= cutoff)
-        subs_period = (await db.execute(subs_period_stmt)).scalar_one() or 0
+        if alerts_response.reference_now != reference_now:
+            raise HTTPException(409, "Mốc dữ liệu đã thay đổi trong lúc tải chi tiết học sinh.")
+        alerts_by_id = {item.profile_id: item for item in alerts_response.items}
+        alert = alerts_by_id.get(student_id)
+        if alert is None:
+            raise HTTPException(502, "Dịch vụ dữ liệu nguồn thiếu trạng thái học sinh.")
+        last_submission_at = alert.last_submission_at
+        flags = []
+        if last_submission_at is None or at - last_submission_at > timedelta(days=INACTIVE_DAYS):
+            flags.append("INACTIVE")
+        if alert.has_stuck_problem:
+            flags.append("STUCK")
 
         return StudentDetailResponse(
             user_id=student_id,
             name=profile.name or f"User {student_id}",
-            username=username or f"user_{student_id}",
+            username=profile.username or f"user_{student_id}",
             time_range=time_range,
             points=profile.points or 0.0,
             performance_points=profile.performance_points or 0.0,
             problem_count=profile.problem_count or 0,
             display_rank=profile.display_rank or "user",
-            organizations=organizations,
-            bloom_scores=bloom_scores, metric="ac_count" if radar.axes is not None else "score",
-            alerts=alerts[student_id],
-            last_submission_at=last_sub[student_id],
+            organizations=[item.name for item in profile.classes],
+            bloom_scores=bloom_scores,
+            metric=metric,
+            alerts=flags,
+            last_submission_at=last_submission_at.isoformat() if last_submission_at else None,
             summary=StudentDetailSummary(
-                total_problems_in_system=total_problems,
-                total_solved_unique=solved,
-                total_submissions_7d=subs_period,
+                total_problems_in_system=catalog.total_problem_count,
+                total_solved_unique=aggregate.solved_unique_count,
+                total_submissions_7d=aggregate.total_submissions,
                 time_range=time_range,
-                total_submissions_period=subs_period,
+                total_submissions_period=aggregate.total_submissions,
             ),
         )
 
     @staticmethod
-    async def get_class_students(org_id: int, db: AsyncSession) -> List[ClassStudentItem]:
-        """Danh sách học sinh thuộc lớp org_id kèm điểm, xếp hạng, cảnh báo và thời gian nộp gần nhất."""
-        org = (
-            await db.execute(select(JudgeOrganization).where(JudgeOrganization.id == org_id))
-        ).scalar_one_or_none()
-        if not org:
-            raise HTTPException(status_code=404, detail=f"Organization {org_id} not found.")
-
-        member_ids = await HeatmapService._get_member_ids(db, org_id)
-        if not member_ids:
-            return []
-
-        stmt = (
-            select(
-                JudgeProfile.id,
-                JudgeProfile.name,
-                AuthUser.username,
-                AuthUser.email,
-                JudgeProfile.points,
-                JudgeProfile.problem_count,
-                JudgeProfile.display_rank,
-            )
-            .outerjoin(AuthUser, AuthUser.id == JudgeProfile.user_id)
-            .where(JudgeProfile.id.in_(member_ids))
-            .order_by(JudgeProfile.points.desc())
+    async def get_class_students(
+        org_id: int,
+        source: SourceGateway,
+        actor_profile_id: int,
+    ) -> List[ClassStudentItem]:
+        organization = await source.get_class(org_id, actor_profile_id=actor_profile_id)
+        members = await AlgorithmCompetencyService._class_students(
+            source, org_id, actor_profile_id,
         )
-        res = await db.execute(stmt)
-        rows = res.all()
-
-        alerts, last_sub = await HeatmapService._get_alerts(db, member_ids)
-
-        return [
-            ClassStudentItem(
-                user_id=r[0],
-                name=r[1] or f"User {r[0]}",
-                username=r[2] or f"user_{r[0]}",
-                avatar_url=HeatmapService._get_gravatar_url(r[3]),
-                points=round(r[4] or 0.0, 1),
-                problem_count=r[5] or 0,
-                display_rank=r[6] or "user",
-                alerts=alerts.get(r[0], []),
-                last_submission_at=last_sub.get(r[0]),
+        if not members:
+            return []
+        member_ids = [member.profile_id for member in members]
+        baseline_pages = []
+        for start in range(0, len(member_ids), 100):
+            requested_ids = member_ids[start:start + 100]
+            page = await source.aggregate_students(
+                requested_ids, actor_profile_id=actor_profile_id, tag_groups=[],
             )
-            for r in rows
-        ]
+            if baseline_pages and page.catalog_version != baseline_pages[0].catalog_version:
+                raise HTTPException(409, "Danh mục đã thay đổi trong lúc tải chi tiết lớp.")
+            if {item.profile_id for item in page.students} != set(requested_ids):
+                raise HTTPException(502, "Dịch vụ dữ liệu nguồn thiếu thống kê học sinh.")
+            baseline_pages.append(page)
+        references = [page.reference_now for page in baseline_pages]
+        if any(value != references[0] for value in references[1:]):
+            raise HTTPException(409, "Mốc dữ liệu đã thay đổi trong lúc tải chi tiết lớp.")
+        at = references[0] or max((page.as_of for page in baseline_pages if page.as_of), default=None)
+        if at is None:
+            raise HTTPException(502, "Dịch vụ dữ liệu nguồn thiếu mốc thời gian snapshot.")
+        alerts: Dict[int, object] = {}
+        for start in range(0, len(members), 100):
+            requested_ids = member_ids[start:start + 100]
+            page = await source.get_student_alerts(
+                requested_ids,
+                actor_profile_id=actor_profile_id, at=at,
+            )
+            if page.reference_now != references[0]:
+                raise HTTPException(409, "Mốc dữ liệu đã thay đổi trong lúc tải chi tiết lớp.")
+            if {item.profile_id for item in page.items} != set(requested_ids):
+                raise HTTPException(502, "Dịch vụ dữ liệu nguồn thiếu trạng thái học sinh.")
+            alerts.update({item.profile_id: item for item in page.items})
+        if set(alerts) != set(member_ids):
+            raise HTTPException(502, "Dịch vụ dữ liệu nguồn thiếu trạng thái học sinh.")
+        output = []
+        for member in sorted(members, key=lambda item: (-item.points, item.profile_id)):
+            alert = alerts[member.profile_id]
+            flags = []
+            if alert.last_submission_at is None or at - alert.last_submission_at > timedelta(days=INACTIVE_DAYS):
+                flags.append("INACTIVE")
+            if alert.has_stuck_problem:
+                flags.append("STUCK")
+            output.append(ClassStudentItem(
+                user_id=member.profile_id,
+                name=member.name or f"User {member.profile_id}",
+                username=member.username or f"user_{member.profile_id}",
+                avatar_url=member.avatar_url,
+                points=round(member.points or 0.0, 1),
+                problem_count=member.problem_count or 0,
+                display_rank=member.display_rank or "user",
+                alerts=flags,
+                last_submission_at=alert.last_submission_at.isoformat() if alert.last_submission_at else None,
+            ))
+        return output
 
 
 heatmap_service = HeatmapService()

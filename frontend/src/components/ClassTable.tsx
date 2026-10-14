@@ -8,6 +8,7 @@ import { Button } from './ui/button';
 import { Skeleton } from './ui/skeleton';
 import { ErrorPanel } from './ErrorPanel';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from './ui/tooltip';
+import { isSameClassListQuery } from '../lib/classListPolling.mjs';
 
 interface ClassTableProps {
   query: ClassListQuery;
@@ -18,7 +19,7 @@ interface ClassTableProps {
 
 type ClassColumn = { label: string; right?: boolean; width: number } & (
   { field: ClassSortField; sortable?: true }
-  | { field: 'school_year' | 'managers'; sortable: false }
+  | { field: 'school_year' | 'managers' | 'is_active'; sortable: false }
 );
 
 const COLUMNS: ClassColumn[] = [
@@ -28,7 +29,7 @@ const COLUMNS: ClassColumn[] = [
   { field: 'managers', label: 'Người quản lý', sortable: false, width: 210 },
   { field: 'member_count', label: 'Sĩ số', right: true, width: 72 },
   { field: 'creation_date', label: 'Ngày tạo', width: 126 },
-  { field: 'last_session_at', label: 'Phiên học gần nhất', width: 190 },
+  { field: 'is_active', label: 'Đang học', sortable: false, width: 130 },
 ];
 
 const COLUMN_COUNT = COLUMNS.length + 1;
@@ -135,9 +136,22 @@ export const ClassTable: React.FC<ClassTableProps> = ({ query, onQueryChange, cl
     };
   }, [query, retry, onQueryChange, initialData]);
 
+  useEffect(() => {
+    let active = true;
+    const timer = window.setInterval(() => {
+      if (document.hidden || !mounted.current) return;
+      const requestedQuery = { ...latestQuery.current };
+      fetchTeacherClasses(requestedQuery).then(response => {
+        if (active && response.page === requestedQuery.page
+          && isSameClassListQuery(requestedQuery, latestQuery.current)) setData(response);
+      }).catch(() => {});
+    }, 15_000);
+    return () => { active = false; window.clearInterval(timer); };
+  }, []);
+
   const nextSortOrder = (field: ClassSortField) => query.sort_by === field
       ? (query.sort_order === 'asc' ? 'desc' : 'asc')
-      : (field === 'creation_date' || field === 'last_session_at' ? 'desc' : 'asc');
+      : (field === 'creation_date' ? 'desc' : 'asc');
   const sortColumn = (field: ClassSortField) => {
     onQueryChange({ ...query, sort_by: field, sort_order: nextSortOrder(field), page: 1 });
   };
@@ -208,7 +222,7 @@ export const ClassTable: React.FC<ClassTableProps> = ({ query, onQueryChange, cl
           className="overflow-x-auto rounded-md border border-border bg-card focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary"
         >
           <table className="w-full min-w-[1060px] table-fixed text-xs text-left">
-            <caption className="sr-only">Danh sách lớp học. Bấm tên cột để sắp xếp. Lớp đã lưu đứng đầu theo lần lưu mới nhất.</caption>
+            <caption className="sr-only">Danh sách lớp học. Lớp có cuộc thi đang diễn ra đứng đầu, tiếp đến là lớp đang học rồi lớp đã lưu. Bấm tên cột để sắp xếp trong từng nhóm.</caption>
             <colgroup>
               <col style={{ width: 48 }} />
               {COLUMNS.map(({ field, width }) => <col key={field} style={{ width }} />)}
@@ -276,8 +290,8 @@ export const ClassTable: React.FC<ClassTableProps> = ({ query, onQueryChange, cl
                   <td className="px-3 whitespace-nowrap text-text-secondary tabular-nums" title={formatDate(cls.creation_date, true)}>
                     {formatDate(cls.creation_date) || 'Chưa có ngày tạo'}
                   </td>
-                  <td className="px-3 whitespace-nowrap text-text-secondary tabular-nums">
-                    {formatDate(cls.last_session_at, true) || 'Chưa có phiên'}
+                  <td className="px-3 whitespace-nowrap">
+                    {cls.is_active && <span className="inline-flex items-center gap-2 font-medium text-green-700 dark:text-green-400"><span className="h-2 w-2 rounded-full bg-green-600 motion-safe:animate-pulse" aria-hidden="true" />Đang học</span>}
                   </td>
                 </tr>
               ))}

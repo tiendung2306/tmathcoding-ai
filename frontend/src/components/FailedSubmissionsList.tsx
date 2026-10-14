@@ -9,8 +9,6 @@ import { SubmissionDetailModal } from './SubmissionDetailModal';
 interface FailedSubmissionsListProps {
   submissions: FailedSubmissionItem[];
   loading: boolean;
-  onDiagnose?: (submissionId: number) => void;
-  diagnosingId?: number | null;
 }
 
 export const FailedSubmissionsList: React.FC<FailedSubmissionsListProps> = ({
@@ -167,7 +165,6 @@ export const FailedSubmissionsList: React.FC<FailedSubmissionsListProps> = ({
         </CardContent>
       </Card>
 
-      {/* Detailed Modal: Problem, Source Code, Test Cases, and Socratic Code Doctor */}
       <SubmissionDetailModal
         submissionId={modalSubmissionId}
         isOpen={modalSubmissionId !== null}
