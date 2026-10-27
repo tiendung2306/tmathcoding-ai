@@ -15,6 +15,7 @@ import {
 import { Badge } from './ui/badge';
 import { Button } from './ui/button';
 import { Skeleton } from './ui/skeleton';
+import { MarkdownMath } from './MarkdownMath';
 import {
   FileText,
   Code2,
@@ -448,9 +449,10 @@ export const SubmissionDetailModal: React.FC<SubmissionDetailModalProps> = ({
                       Mô tả đề bài
                     </h4>
                     {detail.problem_description ? (
-                      <div className="text-xs text-text-primary whitespace-pre-wrap leading-relaxed font-sans max-h-[380px] overflow-y-auto pr-1">
-                        {detail.problem_description}
-                      </div>
+                      <MarkdownMath
+                        content={detail.problem_description}
+                        className="markdown-submission text-xs text-text-primary leading-relaxed font-sans max-h-[380px] overflow-y-auto pr-1"
+                      />
                     ) : (
                       <p className="text-xs text-text-secondary italic py-4 text-center">
                         Bài toán này chưa có nội dung mô tả chi tiết trong hệ thống.
@@ -632,9 +634,10 @@ export const SubmissionDetailModal: React.FC<SubmissionDetailModalProps> = ({
 
                       {/* Single Cohesive Paragraph */}
                       <div className="rounded-md bg-card-subtle/70 border border-border/70 p-4">
-                        <p className="text-xs sm:text-[13px] text-text-primary leading-relaxed whitespace-pre-wrap font-sans">
-                          {diagnosis.advice || diagnosis.summary}
-                        </p>
+                        <MarkdownMath
+                          content={diagnosis.advice || diagnosis.summary || ''}
+                          className="markdown-submission text-xs sm:text-[13px] text-text-primary leading-relaxed font-sans"
+                        />
                       </div>
 
                       <div className="pt-1 flex justify-end">

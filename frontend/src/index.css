@@ -358,7 +358,7 @@
 .forest-note { border-top: 1px solid var(--border-subtle); padding: .85rem 1.25rem; font-size: .75rem; color: var(--text-secondary); }
 .forest-problem-modal { max-width: 900px; }
 .forest-statement { font-size: .9375rem; line-height: 1.75; overflow-wrap: anywhere; }
-.forest-statement > * + * { margin-top: 1rem; }
+.forest-statement > * + *, .forest-statement > .markdown-content > * + * { margin-top: 1rem; }
 .forest-statement h1, .forest-statement h2, .forest-statement h3 { font-weight: 600; font-size: 1.1rem; }
 .forest-statement pre { padding: .75rem; overflow-x: auto; background: var(--bg-app); border: 1px solid var(--border-subtle); font-size: .8125rem; }
 .forest-statement code { white-space: pre-wrap; }
@@ -369,6 +369,22 @@
 .forest-statement th, .forest-statement td { border: 1px solid var(--border-control); padding: .5rem; }
 .forest-statement a { color: var(--brand-primary); text-decoration: underline; }
 .forest-statement .katex-display { overflow-x: auto; overflow-y: hidden; }
+
+.markdown-content { overflow-wrap: anywhere; }
+.markdown-submission > * + * { margin-top: .75em; }
+.markdown-submission :is(h1, h2, h3, h4, h5, h6) { font-size: inherit; font-weight: 600; }
+.markdown-submission h1, .markdown-submission h2, .markdown-submission h3 { margin-top: 1em; }
+.markdown-submission :is(ul, ol) { padding-left: 1.5em; }
+.markdown-submission ul { list-style: disc; }
+.markdown-submission ol { list-style: decimal; }
+.markdown-submission pre { max-width: 100%; overflow-x: auto; white-space: pre; border: 1px solid var(--border-subtle); background: var(--bg-app); padding: .75rem; }
+.markdown-submission code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+.markdown-submission :not(pre) > code { border-radius: .2rem; background: var(--bg-app); padding: .08em .25em; }
+.markdown-submission table { display: block; max-width: 100%; overflow-x: auto; border-collapse: collapse; }
+.markdown-submission th, .markdown-submission td { border: 1px solid var(--border-control); padding: .35rem .5rem; }
+.markdown-submission a { color: var(--brand-primary); text-decoration: underline; }
+.markdown-submission .katex { display: inline-block; max-width: 100%; overflow-x: auto; overflow-y: hidden; vertical-align: middle; }
+.markdown-submission .katex-display { max-width: 100%; overflow-x: auto; overflow-y: hidden; }
 .forest-submission-link { width: 100%; display: flex; justify-content: space-between; gap: .75rem; flex-wrap: wrap; text-align: left; padding: .75rem; min-height: 48px; font-size: .8125rem; }
 @media (min-width: 1280px) { .forest-roots { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
 @media (max-width: 640px) {
