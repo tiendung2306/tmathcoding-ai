@@ -12,7 +12,7 @@ import { ContestsPage } from './pages/ContestsPage';
 import { ContestRoomPage } from './pages/ContestRoomPage';
 import { VirtualClassSessions } from './components/VirtualClassSessions';
 import { ClassStudentItemData } from './types';
-import { positiveId, rosterUrl, studentUrl } from './lib/navigation';
+import { positiveId, studentUrl } from './lib/navigation';
 import { ClassContext, loadClass, loadContest, loadProfile, loadRoster, loadSession, routeRequest, SessionDetail } from './services/navigation';
 
 const StudentDashboard = lazy(() => import('./pages/StudentDashboard').then(module => ({ default: module.StudentDashboard })));
@@ -54,10 +54,8 @@ function RosterPage() {
 }
 function StudentPage() {
   const data = useLoaderData() as StudentData;
-  const [params] = useSearchParams();
   const currentStudent = data.students.find(student => student.user_id === data.id);
-  const backTo = data.organization ? rosterUrl(data.organization.id, params.get('list') || '', params.get('roster') || '') : undefined;
-  return <Suspense fallback={pageLoading}><StudentDashboard key={data.id} studentId={data.id} studentName={data.name} avatarUrl={currentStudent?.avatar_url ?? null} backTo={backTo} className={data.organization?.name} /></Suspense>;
+  return <Suspense fallback={pageLoading}><StudentDashboard key={data.id} studentId={data.id} studentName={data.name} avatarUrl={currentStudent?.avatar_url ?? null} /></Suspense>;
 }
 function SessionsPage() {
   const data = useLoaderData() as ClassContext;
@@ -93,7 +91,9 @@ async function guardedRouteRequest<T>(request: Request, load: () => Promise<T>):
 const studentsLoader = ({ request }: { request: Request }) => guardedRouteRequest(request, async () => {
   const params = new URL(request.url).searchParams;
   const page = Math.max(1, Number.parseInt(params.get('page') || '1', 10) || 1);
-  return (await apiClient.get('/api/v1/teacher/my-students', { params: { page, q: (params.get('q') || '').trim().slice(0, 128) }, signal: request.signal })).data;
+  const requestedSort = params.get('sort');
+  const sort = requestedSort === 'name' || requestedSort === 'name_desc' || requestedSort === 'points_asc' ? requestedSort : 'points_desc';
+  return (await apiClient.get('/api/v1/teacher/my-students', { params: { page, q: (params.get('q') || '').trim().slice(0, 128), sort }, signal: request.signal })).data;
 });
 export const router = createBrowserRouter([
   { path: '/', loader: () => redirect('/teacher/home'), errorElement: <RouteError /> },

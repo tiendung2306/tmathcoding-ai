@@ -1,3 +1,5 @@
+import asyncio
+
 from fastapi import HTTPException
 
 from app.schemas.student import SkillTreeResponse, SkillTreeNode, AlgorithmRadar
@@ -6,6 +8,15 @@ from app.services.source_gateway import SourceGateway
 
 
 BENCHMARKS = {"all": 10.0, "1d": 10.0, "7d": 2.0, "30d": 4.0, "1y": 8.0}
+
+
+def _compact_forest(nodes: list[dict]) -> list[dict]:
+    return [{
+        "id": node["id"], "title": node["title"], "description": node["description"],
+        "problem_count": node["problem_count"], "ac_count": node["ac_count"],
+        "attempted_count": node["attempted_count"],
+        "children": _compact_forest(node["children"]),
+    } for node in nodes]
 
 
 class SkillTreeService:
@@ -43,13 +54,36 @@ class SkillTreeService:
         dashboard_db=None,
         *, actor_profile_id: int,
     ) -> SkillTreeResponse:
-        profile = await source.get_student(user_id, actor_profile_id=actor_profile_id)
-        initial = await source.aggregate_students(
-            [user_id], actor_profile_id=actor_profile_id, tag_groups=[],
+        profile, initial = await asyncio.gather(
+            source.get_student(user_id, actor_profile_id=actor_profile_id),
+            source.aggregate_students([user_id], actor_profile_id=actor_profile_id, tag_groups=[]),
         )
         cutoff = algorithm_competency_service.get_cutoff_date(
             time_range, initial.reference_now,
         )
+        if dashboard_db is not None:
+            from app.services.skill_config_service import configuration, preview
+            from app.schemas.skill_config import SkillDocument
+            config = await configuration(dashboard_db)
+            if config.published is not None:
+                forest = await preview(
+                    SkillDocument.model_validate(config.published), source, user_id, cutoff,
+                    actor_profile_id=actor_profile_id, include_evidence=False,
+                    student_verified=True,
+                )
+                if forest["catalog_version"] != initial.catalog_version:
+                    raise HTTPException(409, "Danh mục đã thay đổi trong lúc tải cây kỹ năng.")
+                radar = AlgorithmRadar(time_range=time_range, axes=[{
+                    "key": root["id"], "title": root["title"],
+                    "ac_count": root["ac_count"], "attempted_count": root["attempted_count"],
+                    "problem_count": root["problem_count"],
+                } for root in forest["roots"]])
+                return SkillTreeResponse(
+                    user_id=user_id, student_name=profile.name or f"User {user_id}",
+                    time_range=time_range, bloom_radar=radar, skill_tree_nodes=[],
+                    skill_forest=_compact_forest(forest["roots"]),
+                    configuration_version=config.published_version,
+                )
         aggregate = initial
         if cutoff is not None:
             aggregate = await source.aggregate_students(
@@ -65,27 +99,6 @@ class SkillTreeService:
         tags, tags_version = await SkillTreeService._all_tags(source, actor_profile_id)
         if tags_version != aggregate.catalog_version:
             raise HTTPException(409, "Danh mục đã thay đổi trong lúc tải cây kỹ năng.")
-
-        if dashboard_db is not None:
-            from app.services.skill_config_service import configuration, preview
-            from app.schemas.skill_config import SkillDocument
-            config = await configuration(dashboard_db)
-            if config.published is not None:
-                forest = await preview(
-                    SkillDocument.model_validate(config.published), source, user_id, cutoff,
-                    actor_profile_id=actor_profile_id,
-                )
-                radar = AlgorithmRadar(time_range=time_range, axes=[{
-                    "key": root["id"], "title": root["title"],
-                    "ac_count": root["ac_count"], "attempted_count": root["attempted_count"],
-                    "problem_count": root["problem_count"],
-                } for root in forest["roots"]])
-                return SkillTreeResponse(
-                    user_id=user_id, student_name=profile.name or f"User {user_id}",
-                    time_range=time_range, bloom_radar=radar, skill_tree_nodes=[],
-                    skill_forest=forest["roots"],
-                    configuration_version=config.published_version, scoring=forest["scoring"],
-                )
 
         tag_counts = {item.tag_id: item.solved_unique_count for item in student.tag_stats}
         target = BENCHMARKS.get(time_range, BENCHMARKS["all"])

@@ -34,9 +34,9 @@ export async function fetchSkillProblemDetail(problemId: number, userId: number,
   })).data;
 }
 
-export const fetchSkillTree = async (userId: number, timeRange: TimeRange = 'all'): Promise<SkillTreeResponseData> => {
+export const fetchSkillTree = async (userId: number, timeRange: TimeRange = 'all', signal?: AbortSignal): Promise<SkillTreeResponseData> => {
   const res = await apiClient.get(`${API_BASE_URL}/student/skill-tree`, {
-    params: { user_id: userId, time_range: timeRange }, timeout: 30_000,
+    params: { user_id: userId, time_range: timeRange }, signal, timeout: 30_000,
   });
   return res.data;
 };

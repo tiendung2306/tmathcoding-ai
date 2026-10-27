@@ -294,6 +294,11 @@ class SourceAnalyticsCatalog(BaseModel):
     as_of: datetime
 
 
+class SourceTagProblemPools(BaseModel):
+    catalog_version: str | int
+    tag_problem_ids: dict[int, list[int]]
+
+
 class SourceTagGroupRequest(BaseModel):
     key: str
     tag_ids: list[int]
@@ -775,6 +780,10 @@ class HttpSourceGateway:
         except (ValueError, TypeError) as exc:
             raise HTTPException(502, "Dịch vụ dữ liệu nguồn trả nội dung JSON không hợp lệ.") from exc
         return _validate_source_response(SourceAnalyticsCatalog, raw), etag, False
+
+    async def get_tag_problem_pools(self, *, actor_profile_id: int) -> SourceTagProblemPools:
+        raw = await self._request("GET", "analytics/tag-problem-pools", actor_profile_id=actor_profile_id)
+        return _validate_source_response(SourceTagProblemPools, raw)
 
     async def aggregate_students(self, profile_ids: list[int], *, actor_profile_id: int,
                                  date_from: datetime | None = None, date_to: datetime | None = None,

@@ -1,3 +1,4 @@
+import asyncio
 import json
 import logging
 import time
@@ -15,9 +16,9 @@ from app.services.source_gateway import SourceGateway
 
 logger = logging.getLogger(__name__)
 AI_BATCH_SIZE = 3
-CATALOG_CACHE_TTL_SECONDS = 30
+CATALOG_CACHE_TTL_SECONDS = 600
 CATALOG_CACHE_LIMIT = 32
-_catalog_cache: dict[tuple[int, str | int], tuple[float, list[dict], dict[int, set[int]]]] = {}
+_catalog_cache: dict[tuple[int, str | int, bool], tuple[float, list[dict], dict[int, set[int]]]] = {}
 _REFERENCE_UNSET = object()
 
 
@@ -31,11 +32,11 @@ async def configuration(db, lock=False):
     return row
 
 
-async def catalog(source: SourceGateway, actor_profile_id: int):
+async def catalog(source: SourceGateway, actor_profile_id: int, *, include_pools: bool = True):
     summary, _, not_modified = await source.get_analytics_catalog(actor_profile_id=actor_profile_id)
     if not_modified or summary is None:
         raise HTTPException(502, "Dịch vụ dữ liệu nguồn không trả danh mục bài toán.")
-    key = (actor_profile_id, summary.catalog_version)
+    key = (actor_profile_id, summary.catalog_version, include_pools)
     now = time.monotonic()
     cached = _catalog_cache.get(key)
     if cached and now - cached[0] < CATALOG_CACHE_TTL_SECONDS:
@@ -70,6 +71,28 @@ async def catalog(source: SourceGateway, actor_profile_id: int):
                   "title": tag.title or tag.key or f"Topic {tag.tag_id}",
                   "problem_count": tag_counts.get(tag.tag_id, 0)} for tag in tags]
     pools = {tag["id"]: set() for tag in tag_items}
+    if not include_pools:
+        _catalog_cache[key] = (time.monotonic(), tag_items, pools)
+        while len(_catalog_cache) > CATALOG_CACHE_LIMIT:
+            _catalog_cache.pop(next(iter(_catalog_cache)))
+        return tag_items, pools, summary.catalog_version
+    get_pools = getattr(source, "get_tag_problem_pools", None)
+    if get_pools is not None:
+        try:
+            pool_result = await get_pools(actor_profile_id=actor_profile_id)
+        except HTTPException as exc:
+            if exc.status_code != 404:
+                raise
+        else:
+            if pool_result.catalog_version != summary.catalog_version:
+                raise HTTPException(409, "Danh mục đã thay đổi trong lúc tải; hãy thử lại.")
+            for tag_id, problem_ids in pool_result.tag_problem_ids.items():
+                if tag_id in pools:
+                    pools[tag_id].update(problem_ids)
+            _catalog_cache[key] = (time.monotonic(), tag_items, pools)
+            while len(_catalog_cache) > CATALOG_CACHE_LIMIT:
+                _catalog_cache.pop(next(iter(_catalog_cache)))
+            return tag_items, pools, summary.catalog_version
     page = await source.list_problems(
         actor_profile_id=actor_profile_id, cursor=None, after_id=None, limit=100, fields="summary",
     )
@@ -94,7 +117,7 @@ async def catalog(source: SourceGateway, actor_profile_id: int):
         if page.catalog_version != summary.catalog_version:
             raise HTTPException(409, "Danh mục đã thay đổi trong lúc tải; hãy thử lại.")
 
-    _catalog_cache[key] = (now, tag_items, pools)
+    _catalog_cache[key] = (time.monotonic(), tag_items, pools)
     while len(_catalog_cache) > CATALOG_CACHE_LIMIT:
         _catalog_cache.pop(next(iter(_catalog_cache)))
     return tag_items, pools, summary.catalog_version
@@ -106,7 +129,7 @@ async def validate_document(document, source: SourceGateway, require_roots=False
             document.require_roots()
         except ValueError as exc:
             raise HTTPException(422, str(exc))
-    tags, _, _version = await catalog(source, actor_profile_id)
+    tags, _, _version = await catalog(source, actor_profile_id, include_pools=False)
     ids = {tag["id"] for tag in tags}
     if set(document.assignments) - ids:
         raise HTTPException(422, "Có tag không còn tồn tại trong dữ liệu nguồn. Hãy tải lại danh mục.")
@@ -114,7 +137,7 @@ async def validate_document(document, source: SourceGateway, require_roots=False
 
 async def state(dashboard, source: SourceGateway, *, actor_profile_id: int):
     row = await configuration(dashboard)
-    tags, _pools, _version = await catalog(source, actor_profile_id)
+    tags, _pools, _version = await catalog(source, actor_profile_id, include_pools=False)
     return {"revision": row.revision, "has_published": row.published is not None,
             "document": row.draft, "tags": tags, "proposals": visible_proposals(row)}
 
@@ -157,7 +180,7 @@ async def review_proposals(dashboard, source: SourceGateway, payload, actor=None
         await dashboard.rollback()
         raise HTTPException(409, "Cấu hình đã được người khác cập nhật. Hãy tải lại trước khi duyệt.")
     chosen = set(payload.tag_ids)
-    tag_items, _pools, _version = await catalog(source, actor_profile_id)
+    tag_items, _pools, _version = await catalog(source, actor_profile_id, include_pools=False)
     existing_ids = {item["id"] for item in tag_items}
     if chosen - existing_ids:
         await dashboard.rollback()
@@ -213,7 +236,8 @@ async def write(dashboard, source: SourceGateway, revision, document, actor, pub
     return await state(dashboard, source, actor_profile_id=actor_profile_id)
 
 
-def build_forest(document, tags, pools, submissions=(), problems=None):
+def build_forest(document, tags, pools, submissions=(), problems=None, fact_counts=None,
+                 include_evidence=True):
     nodes = {n.id: n for n in document.nodes}
     node_tags = {key: [] for key in nodes}
     for tag in tags:
@@ -222,21 +246,32 @@ def build_forest(document, tags, pools, submissions=(), problems=None):
     for node in document.nodes:
         if node.parent_id:
             children[node.parent_id].append(node.id)
-    ac, attempted, sub_ids = set(), set(), {}
-    for sid, pid, result in submissions:
-        attempted.add(pid)
-        sub_ids.setdefault(pid, set()).add(sid)
-        if result == "AC":
-            ac.add(pid)
+    ac, attempted, submission_counts = set(), set(), {}
+    if fact_counts is not None:
+        for pid, (attempt_count, ac_count) in fact_counts.items():
+            if attempt_count > 0:
+                attempted.add(pid)
+                submission_counts[pid] = attempt_count
+            if ac_count > 0:
+                ac.add(pid)
+    else:
+        sub_ids = {}
+        for sid, pid, result in submissions:
+            attempted.add(pid)
+            sub_ids.setdefault(pid, set()).add(sid)
+            if result == "AC":
+                ac.add(pid)
+        submission_counts = {pid: len(ids) for pid, ids in sub_ids.items()}
     problems = problems or {}
 
     def metrics(pool):
         solved = pool & ac
         tried = pool & attempted
         return {"problem_count": len(pool), "ac_count": len(solved),
-                "attempted_count": len(tried), "submission_count": len(set().union(*(sub_ids[p] for p in tried))),
+                "attempted_count": len(tried), "submission_count": sum(submission_counts[p] for p in tried),
                 "status": "HAS_AC" if solved else "ATTEMPTED" if tried else "UNATTEMPTED",
-                "evidence": [{"id": pid, **problems.get(pid, {}), "solved": pid in ac} for pid in sorted(tried)[:50]],
+                "evidence": ([{"id": pid, **problems.get(pid, {}), "solved": pid in ac}
+                              for pid in sorted(tried)[:50]] if include_evidence else []),
                 "evidence_total": len(tried)}
 
     def visit(key):
@@ -284,38 +319,51 @@ async def _all_facts(source: SourceGateway, profile_id: int, actor_profile_id: i
 
 
 async def preview(document, source: SourceGateway, user_id=None, cutoff=None,
-                  actor_profile_id: int | None = None):
+                  actor_profile_id: int | None = None, *, include_evidence: bool = True,
+                  student_verified: bool = False):
     if actor_profile_id is None:
         raise HTTPException(403, "Thiếu hồ sơ actor để đọc dữ liệu nguồn.")
-    await validate_document(document, source, actor_profile_id=actor_profile_id)
-    tags, pools, catalog_version = await catalog(source, actor_profile_id)
-    submissions, problems = [], {}
-    if user_id:
+    if user_id and not student_verified:
         await source.get_student(user_id, actor_profile_id=actor_profile_id)
-        facts, fact_version = await _all_facts(source, user_id, actor_profile_id, cutoff)
+    if user_id:
+        (tags, pools, catalog_version), (facts, fact_version) = await asyncio.gather(
+            catalog(source, actor_profile_id),
+            _all_facts(source, user_id, actor_profile_id, cutoff),
+        )
+    else:
+        tags, pools, catalog_version = await catalog(source, actor_profile_id)
+    if document.assignments:
+        try:
+            document.require_roots()
+        except ValueError as exc:
+            raise HTTPException(422, str(exc)) from exc
+    if set(document.assignments) - {tag["id"] for tag in tags}:
+        raise HTTPException(422, "Có tag không còn tồn tại trong dữ liệu nguồn. Hãy tải lại danh mục.")
+    problems = {}
+    fact_counts = None
+    if user_id:
         catalog_obj, _, not_modified = await source.get_analytics_catalog(actor_profile_id=actor_profile_id)
         if not_modified or catalog_obj is None:
             raise HTTPException(502, "Dịch vụ dữ liệu nguồn không trả danh mục analytics.")
         if fact_version is not None and (fact_version != catalog_obj.catalog_version or
                                          catalog_version != catalog_obj.catalog_version):
             raise HTTPException(409, "Dữ liệu học tập đã thay đổi trong lúc tải; hãy thử lại.")
-        pids = sorted({fact.problem_id for fact in facts})
-        for start in range(0, len(pids), 100):
-            page = await source.list_problems(
-                actor_profile_id=actor_profile_id, cursor=None, after_id=None,
-                ids=pids[start:start + 100], limit=100, fields="summary",
-            )
-            if page.catalog_version != fact_version:
-                raise HTTPException(409, "Danh mục đã thay đổi trong lúc tải; hãy thử lại.")
-            problems.update({problem.problem_id: {"code": problem.code, "title": problem.title}
-                             for problem in page.items})
+        if include_evidence:
+            pids = sorted({fact.problem_id for fact in facts})
+            for start in range(0, len(pids), 100):
+                page = await source.list_problems(
+                    actor_profile_id=actor_profile_id, cursor=None, after_id=None,
+                    ids=pids[start:start + 100], limit=100, fields="summary",
+                )
+                if page.catalog_version != fact_version:
+                    raise HTTPException(409, "Danh mục đã thay đổi trong lúc tải; hãy thử lại.")
+                problems.update({problem.problem_id: {"code": problem.code, "title": problem.title}
+                                 for problem in page.items})
 
-        sid = 0
-        for fact in facts:
-            for _ in range(fact.attempt_count):
-                sid += 1
-                submissions.append((sid, fact.problem_id, "AC" if fact.ac_count else "WA"))
-    return {"roots": build_forest(document, tags, pools, submissions, problems),
+        fact_counts = {fact.problem_id: (fact.attempt_count, fact.ac_count) for fact in facts}
+    return {"roots": build_forest(document, tags, pools, problems=problems, fact_counts=fact_counts,
+                                   include_evidence=include_evidence),
+            "catalog_version": catalog_version,
             "scoring": "Bài AC và bài đã thử đều đếm theo bài riêng biệt trong kho và phân loại hiện tại. Bài đã thử bao gồm bài AC; nộp nhiều lần không tăng số bài. Chưa chấm điểm kỹ năng."}
 
 

@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import type { FormEvent } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Hourglass, Search } from 'lucide-react';
-import { Link } from 'react-router-dom';
+import { Link, useLocation } from 'react-router-dom';
 import { ErrorPanel } from '../components/ErrorPanel';
 import { PaginationBar } from '../components/PaginationBar';
 import { fetchContestOrganizations, fetchTeacherContests } from '../services/api';
@@ -32,6 +32,7 @@ function ContestCard({
   organizationNames: Map<number, string>;
   now: number;
 }) {
+  const location = useLocation();
   const cardTone = contest.status === 'active'
     ? 'border-l-emerald-600'
     : 'border-l-slate-300';
@@ -39,7 +40,7 @@ function ContestCard({
     .map(id => organizationNames.get(id) || `Lớp ${id}`)
     .join(', ');
 
-  return <Link to={`/teacher/contests/${contest.contest_id}`} aria-label={`Mở phòng cuộc thi ${contest.title}`} className={`contest-card flex min-h-[180px] min-w-0 cursor-pointer flex-col gap-3.5 rounded-lg border border-border border-l-[5px] ${cardTone} bg-card px-4 py-4 text-left shadow-xs transition-[box-shadow,transform,background-color] duration-150 hover:-translate-y-0.5 hover:bg-slate-50/60 hover:shadow-md focus-visible:-translate-y-0.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary sm:px-5 sm:py-5`}>
+  return <Link to={`/teacher/contests/${contest.contest_id}`} state={{ from: location.pathname + location.search }} aria-label={`Mở phòng cuộc thi ${contest.title}`} className={`contest-card flex min-h-[180px] min-w-0 cursor-pointer flex-col gap-3.5 rounded-lg border border-border border-l-[5px] ${cardTone} bg-card px-4 py-4 text-left shadow-xs transition-[box-shadow,transform,background-color] duration-150 hover:-translate-y-0.5 hover:bg-slate-50/60 hover:shadow-md focus-visible:-translate-y-0.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary sm:px-5 sm:py-5`}>
     <div className="min-w-0">
       <h3 className="truncate text-[21px] font-semibold leading-7 tracking-[-0.025em] text-text-primary">{contest.title}</h3>
       <p className="mt-0.5 truncate text-sm leading-5 text-text-secondary">{contest.code}</p>

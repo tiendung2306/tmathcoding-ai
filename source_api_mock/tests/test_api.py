@@ -314,6 +314,41 @@ class SourceAPITest(unittest.TestCase):
         self.assertEqual(superadmin_students.json()["total"], 2)
         self.assertNotIn(5, {item["profile_id"] for item in superadmin_students.json()["items"]})
 
+    def test_student_sort_directions_keep_global_rank(self):
+        path = "/integration/v1/teachers/2/students"
+        expected = {
+            "name": ([3, 4], [None, None]),
+            "name_desc": ([4, 3], [None, None]),
+            "points_desc": ([3, 4], [1, 2]),
+            "points_asc": ([4, 3], [2, 1]),
+        }
+        for sort, (ids, ranks) in expected.items():
+            with self.subTest(sort=sort):
+                first = self.client.get(path, params={"sort": sort, "limit": 1}, headers=self.headers())
+                self.assertEqual(first.status_code, 200)
+                second = self.client.get(path, params={"sort": sort, "limit": 1,
+                                                       "cursor": first.json()["next_cursor"]}, headers=self.headers())
+                self.assertEqual(second.status_code, 200)
+                items = first.json()["items"] + second.json()["items"]
+                self.assertEqual([item["profile_id"] for item in items], ids)
+                self.assertEqual([item["rank"] for item in items], ranks)
+
+    def test_student_without_name_uses_profile_id(self):
+        with self.engine.begin() as conn:
+            conn.execute(update(profile).where(profile.c.id == 4).values(name=None))
+        response = self.client.get("/integration/v1/teachers/2/students", headers=self.headers())
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(next(item for item in response.json()["items"] if item["profile_id"] == 4)["name"], "4")
+
+    def test_tag_problem_pools_only_include_visible_problems(self):
+        path = "/integration/v1/analytics/tag-problem-pools"
+        response = self.client.get(path, headers=self.headers())
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertTrue(payload["catalog_version"])
+        self.assertEqual(payload["tag_problem_ids"]["14"], [201])
+        self.assertEqual(payload["tag_problem_ids"]["31"], [201, 203])
+
     def test_class_students_and_contests(self):
         response = self.client.get("/integration/v1/classes/11/students", headers=self.headers())
         self.assertEqual(response.status_code, 200)

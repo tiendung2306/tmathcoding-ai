@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useLocation } from 'react-router-dom';
 import { Card } from './ui/card';
 import { Badge } from './ui/badge';
 import { Calendar, Clock, ArrowRight, Radio } from 'lucide-react';
@@ -16,6 +16,8 @@ export const VirtualClassSessions: React.FC<VirtualClassSessionsProps> = ({
   className,
   sessionHref,
 }) => {
+  const location = useLocation();
+  const returnTo = location.pathname + location.search;
   const [sessions, setSessions] = useState<any[]>([]);
   const [activeSession, setActiveSession] = useState<any | null>(null);
   const [loading, setLoading] = useState(true);
@@ -110,6 +112,7 @@ export const VirtualClassSessions: React.FC<VirtualClassSessionsProps> = ({
 
             <Link
               to={sessionHref(activeSession.id)}
+              state={{ from: returnTo }}
               className="w-full min-h-11 py-2 rounded-md text-sm font-medium flex items-center justify-center gap-1.5 transition-colors bg-brand-primary text-white hover:bg-brand-primary/90 shadow-sm"
             >
               Vào phòng ngay
@@ -162,6 +165,7 @@ export const VirtualClassSessions: React.FC<VirtualClassSessionsProps> = ({
 
                 <Link
                   to={sessionHref(session.id)}
+                  state={{ from: returnTo }}
                   className="w-full min-h-11 py-1.5 rounded-md text-sm font-medium flex items-center justify-center gap-1.5 transition-colors border border-border-control text-text-secondary hover:bg-card-subtle hover:text-text-primary"
                 >
                   Xem lại dữ liệu

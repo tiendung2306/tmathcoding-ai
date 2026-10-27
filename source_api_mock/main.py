@@ -29,7 +29,7 @@ from .schemas import (
     APIError, Access, AcceptedSample, AcceptedSamplesResponse, CatalogSummary, ClassItem, ClassQuery, ClassStudent, ContestPage,
     GroupProblemCount, LanguageItem, Manager, Page, ProblemGroupItem, ProblemGroupPage,
     ProblemItem, ProblemPage, SchoolYear, StudentDetail, StudentItem, TagItem, TagPage,
-    TagProblemCount, ProblemFact, ProblemFactsPage, RequestedGroupStat,
+    TagProblemCount, TagProblemPools, ProblemFact, ProblemFactsPage, RequestedGroupStat,
     StudentAggregateItem, StudentAggregateRequest, StudentAggregateResponse, ContestItem,
     StudentGroupStat, StudentTagStat,
     SubmissionChange, SubmissionChangesPage, SubmissionDetail, SubmissionItem,
@@ -662,7 +662,7 @@ def student_item(row) -> dict:
         email_hash = hashlib.md5(email.encode("utf-8"), usedforsecurity=False).hexdigest()
         avatar_url = f"https://www.gravatar.com/avatar/{email_hash}?d=identicon&s=96"
     return {
-        "profile_id": row["profile_id"], "name": (row["name"] or f"Profile {row['profile_id']}"),
+        "profile_id": row["profile_id"], "name": (row["name"] or "").strip() or str(row["profile_id"]),
         "username": row["username"] or f"user_{row['profile_id']}", "points": float(row["points"] or 0),
         "problem_count": int(row["problem_count"] or 0), "display_rank": row["display_rank"] or "user",
         "rank": row.get("rank"),
@@ -975,18 +975,23 @@ def _paged_students(db, profile_id, class_id, q, cursor, limit, class_view=False
     scope_actor = actor_id if actor_id is not None else profile_id
     q = q.strip() if q and q.strip() else None
     cursor = cursor.strip() if cursor and cursor.strip() else None
-    stmt = list_students_query(db, profile_id, class_id, None if sort == "points_desc" else q)
+    stmt = list_students_query(db, profile_id, class_id, None if sort.startswith("points_") else q)
     rows = list(db.execute(stmt).mappings())
     items = [student_item(row) for row in rows]
-    if sort == "points_desc":
-        items.sort(key=lambda item: (-item["points"], item["profile_id"]))
-        for rank, item in enumerate(items, 1):
-            item["rank"] = rank
+    if sort.startswith("points_"):
+        ranked = sorted(items, key=lambda item: (-item["points"], item["profile_id"]))
+        ranks = {item["profile_id"]: rank for rank, item in enumerate(ranked, 1)}
+        items.sort(key=lambda item: (item["points"], item["profile_id"]) if sort == "points_asc"
+                   else (-item["points"], item["profile_id"]))
+        for item in items:
+            item["rank"] = ranks[item["profile_id"]]
         if q:
             term = q.casefold()
             items = [item for item in items if term in " ".join((
-                item["name"], item["username"], str(item["profile_id"]),
+                item["name"] or "", item["username"], str(item["profile_id"]),
             )).casefold()]
+    elif sort == "name_desc":
+        items.reverse()
     if class_view:
         items = [{**item, "avatar_url": None, "joined_at": None} for item in items]
     scope = json.dumps({"actor_id": scope_actor, "profile_id": profile_id, "class_id": class_id, "q": q, "limit": limit,
@@ -998,7 +1003,7 @@ def _paged_students(db, profile_id, class_id, q, cursor, limit, class_view=False
 
 @app.get(f"{API_PREFIX}/teachers/{{profile_id}}/students", response_model=Page[StudentItem],
          responses={**COMMON_ERROR_RESPONSES, **error_responses(404, 409)})
-def teacher_students(profile_id: int, q: str | None = None, cursor: str | None = None, limit: int = Query(24, ge=1, le=100), sort: str = Query("name", pattern="^(name|points_desc)$"), db: Session = Depends(get_db), actor_id: int = Depends(actor_profile_id)):
+def teacher_students(profile_id: int, q: str | None = None, cursor: str | None = None, limit: int = Query(24, ge=1, le=100), sort: str = Query("name", pattern="^(name|name_desc|points_desc|points_asc)$"), db: Session = Depends(get_db), actor_id: int = Depends(actor_profile_id)):
     require_actor_profile(db, actor_id, profile_id)
     if profile_row(db, profile_id) is None:
         raise HTTPException(404, {"code": "not_found", "message": "Profile not found"})
@@ -1755,6 +1760,20 @@ def analytics_catalog(
         as_of=utc_now(),
     )
     return JSONResponse(content=jsonable_encoder(result), headers={"ETag": etag})
+
+
+@app.get(f"{API_PREFIX}/analytics/tag-problem-pools", response_model=TagProblemPools,
+         responses=COMMON_ERROR_RESPONSES)
+def analytics_tag_problem_pools(db: Session = Depends(get_db), actor_id: int = Depends(actor_profile_id)):
+    version = _catalog_version(db, actor_id)
+    rows = db.execute(select(problem_type.c.problemtype_id, problem_type.c.problem_id)
+        .select_from(problem_type.join(problem, problem.c.id == problem_type.c.problem_id))
+        .where(*_visible_problem_where(db, actor_id))
+        .order_by(problem_type.c.problemtype_id, problem_type.c.problem_id)).all()
+    pools: dict[int, list[int]] = {}
+    for tag_id, problem_id in rows:
+        pools.setdefault(tag_id, []).append(problem_id)
+    return TagProblemPools(catalog_version=version, tag_problem_ids=pools)
 
 
 def _authorized_aggregate_profiles(db: Session, actor_id: int, profile_ids: list[int]) -> list[int]:

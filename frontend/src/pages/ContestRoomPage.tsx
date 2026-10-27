@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
-import { Link, useLoaderData } from 'react-router-dom';
+import { useLoaderData } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import { ArrowLeft, Clock3 } from 'lucide-react';
+import { Clock3 } from 'lucide-react';
 import { Badge } from '../components/ui/badge';
 import { Card } from '../components/ui/card';
 import { ErrorPanel } from '../components/ErrorPanel';
@@ -30,10 +30,6 @@ export function ContestRoomPage() {
     : contest.status === 'upcoming' ? 'Sắp diễn ra' : 'Đã kết thúc';
 
   return <section className="mx-auto max-w-7xl space-y-6 p-3.5 sm:p-5 lg:p-6">
-    <Link to="/teacher/contests" className="inline-flex min-h-11 items-center gap-2 rounded-md text-sm font-medium text-text-secondary hover:text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary">
-      <ArrowLeft aria-hidden className="h-4 w-4" />Danh sách cuộc thi
-    </Link>
-
     <header className="rounded-xl border border-border bg-card p-5 shadow-xs">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>

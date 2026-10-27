@@ -1,6 +1,7 @@
 import React, { useEffect, useRef } from 'react';
 import { Outlet, ScrollRestoration, useLoaderData, useLocation, useMatches, useNavigation } from 'react-router-dom';
 import { Header } from './components/layout/Header';
+import { BackNavigation } from './components/BackNavigation';
 import { Sidebar } from './components/layout/Sidebar';
 import type { AuthAccount } from './services/auth';
 
@@ -28,6 +29,7 @@ export function App() {
       <Sidebar />
       <main id="main-content" ref={mainRef} tabIndex={-1} className="min-w-0 flex-1 focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand-primary focus-visible:outline-offset-[-2px]">
       {navigation.state !== 'idle' && <div role="status" className="fixed top-0 left-0 right-0 h-1 bg-brand-primary z-50"><span className="sr-only">Đang mở trang...</span></div>}
+      <BackNavigation />
       <Outlet />
       </main>
     </div>

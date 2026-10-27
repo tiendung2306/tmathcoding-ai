@@ -88,9 +88,7 @@ export interface SkillTag { id: number; key: string; title: string; problem_coun
 export interface SkillConfigState { revision: number; has_published: boolean; document: SkillDocument; tags: SkillTag[]; proposals: import('../services/skillConfig').SkillProposal[] }
 export interface SkillForestNode {
   id: string; title: string; description: string; problem_count: number;
-  ac_count: number; attempted_count: number; submission_count: number; status: string;
-  tags: SkillTag[]; children: SkillForestNode[];
-  evidence: {id: number; code: string; title: string; solved: boolean}[]; evidence_total: number;
+  ac_count: number; attempted_count: number; children: SkillForestNode[];
 }
 
 export interface SkillPage<T> { items: T[]; total: number; page: number; page_size: number; total_pages: number }

@@ -99,11 +99,12 @@ async def get_teacher_students(
     page: int = Query(1, ge=1),
     page_size: int = Query(24, ge=1, le=100),
     q: str = Query("", max_length=128),
+    sort: str = Query("points_desc", pattern="^(points_desc|points_asc|name|name_desc)$"),
     source: SourceGateway = Depends(get_source_gateway),
     actor=Depends(get_current_user),
 ):
     target = _target_profile_id(teacher_id, actor)
-    return await get_student_page(source, target, page, page_size, q, actor_profile_id=actor.profile_id)
+    return await get_student_page(source, target, page, page_size, q, actor_profile_id=actor.profile_id, sort=sort)
 
 
 @router.get("/students/search", response_model=list[StudentSearchItem])

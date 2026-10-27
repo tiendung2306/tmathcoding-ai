@@ -258,6 +258,28 @@ class TeacherOrganizationTests(unittest.IsolatedAsyncioTestCase):
         searched = await get_student_page(self.gateway, 2, 1, 24, "user4")
         self.assertEqual([item.user_id for item in searched.items], [4])
 
+    async def test_student_sort_directions_with_legacy_gateway(self):
+        self.session.get(JudgeProfile, 3).points = 20
+        self.session.get(JudgeProfile, 4).points = 5
+        self.session.commit()
+        expected = {
+            "name": [3, 4],
+            "name_desc": [4, 3],
+            "points_desc": [3, 4],
+            "points_asc": [4, 3],
+        }
+        for sort, ids in expected.items():
+            with self.subTest(sort=sort):
+                result = await get_student_page(self.gateway, 2, 1, 24, "", sort=sort)
+                self.assertEqual([item.user_id for item in result.items], ids)
+                self.assertEqual({item.user_id: item.rank for item in result.items}, {3: 1, 4: 2})
+
+    async def test_student_without_name_uses_profile_id(self):
+        self.session.get(JudgeProfile, 4).name = None
+        self.session.commit()
+        page = await get_student_page(self.gateway, 2, 1, 24, "")
+        self.assertEqual(next(item for item in page.items if item.user_id == 4).name, "4")
+
     async def test_api_contract_and_invalid_parameters(self):
         app = FastAPI()
         app.include_router(router, prefix="/teacher")

@@ -20,10 +20,17 @@ class _StudentPageCache:
     lock: asyncio.Lock = field(default_factory=asyncio.Lock)
 
 
-_student_cache: OrderedDict[tuple[int, int, str, int], _StudentPageCache] = OrderedDict()
+_student_cache: OrderedDict[tuple[int, int, str, int, str], _StudentPageCache] = OrderedDict()
 
 
-def _get_page_cache(key: tuple[int, int, str, int], now: float) -> _StudentPageCache:
+def _display_name(item: SourceStudent) -> str:
+    name = (item.name or "").strip()
+    if not name or name in (f"Profile {item.profile_id}", f"Học sinh #{item.profile_id}"):
+        return str(item.profile_id)
+    return name
+
+
+def _get_page_cache(key: tuple[int, int, str, int, str], now: float) -> _StudentPageCache:
     expired = [
         cache_key for cache_key, value in _student_cache.items()
         if now - value.updated_at >= _STUDENT_CACHE_TTL_SECONDS
@@ -48,6 +55,7 @@ async def _fetch_source_page(
     query: str | None,
     page: int,
     page_size: int,
+    sort: str,
     cache: _StudentPageCache,
 ) -> tuple[int, SourcePage[SourceStudent]]:
     cached_page = cache.pages.get(page)
@@ -74,7 +82,7 @@ async def _fetch_source_page(
             q=query,
             cursor=cursor,
             limit=page_size,
-            sort="points_desc",
+            sort=sort,
         )
         cache.pages[next_page] = last_result
         if not last_result.has_more:
@@ -95,38 +103,39 @@ async def _fetch_source_page(
 async def get_student_page(
     gateway: SourceGateway, teacher_id: int, page: int, page_size: int, q: str,
     actor_profile_id: int | None = None,
+    sort: str = "points_desc",
 ) -> StudentPage:
     actor = actor_profile_id or teacher_id
     query = q.strip() or None
     if "sort" not in inspect.signature(gateway.list_students).parameters:
-        return await _get_legacy_student_page(gateway, teacher_id, actor, page, page_size, query)
+        return await _get_legacy_student_page(gateway, teacher_id, actor, page, page_size, query, sort)
 
-    cache_key = (actor, teacher_id, query or "", page_size)
+    cache_key = (actor, teacher_id, query or "", page_size, sort)
     cache = _get_page_cache(cache_key, time.monotonic())
 
     async with cache.lock:
         try:
             target_page, result = await _fetch_source_page(
-                gateway, teacher_id, actor, query, page, page_size, cache,
+                gateway, teacher_id, actor, query, page, page_size, sort, cache,
             )
         except HTTPException as exc:
             if exc.status_code != 409:
                 raise
             cache.pages.clear()
             target_page, result = await _fetch_source_page(
-                gateway, teacher_id, actor, query, page, page_size, cache,
+                gateway, teacher_id, actor, query, page, page_size, sort, cache,
             )
 
     items: list[StudentSearchItem] = []
     for item in result.items:
-        if item.rank is None:
+        if sort in ("points_desc", "points_asc") and item.rank is None:
             raise HTTPException(
                 status_code=502,
                 detail="Dịch vụ dữ liệu nguồn chưa trả thứ hạng toàn cục của học sinh.",
             )
         items.append(StudentSearchItem(
             user_id=item.profile_id,
-            name=item.name or f"Học sinh #{item.profile_id}",
+            name=_display_name(item),
             username=item.username or f"user_{item.profile_id}",
             points=item.points,
             problem_count=item.problem_count,
@@ -151,6 +160,7 @@ async def _get_legacy_student_page(
     page: int,
     page_size: int,
     query: str | None,
+    sort: str,
 ) -> StudentPage:
     """Keep older in-process SourceGateway adapters working during contract rollout."""
     result = await gateway.list_students(
@@ -167,8 +177,15 @@ async def _get_legacy_student_page(
         )
         students.extend(result.items)
 
-    students.sort(key=lambda item: (-item.points, item.profile_id))
-    ranks = {item.profile_id: index + 1 for index, item in enumerate(students)}
+    ranked_students = sorted(students, key=lambda item: (-item.points, item.profile_id))
+    ranks = {item.profile_id: index + 1 for index, item in enumerate(ranked_students)}
+    if sort == "points_desc":
+        students = ranked_students
+    elif sort == "points_asc":
+        students.sort(key=lambda item: (item.points, item.profile_id))
+    else:
+        students.sort(key=lambda item: (_display_name(item).casefold(), item.profile_id),
+                      reverse=sort == "name_desc")
     if query:
         term = query.casefold()
         students = [item for item in students if term in " ".join((
@@ -181,7 +198,7 @@ async def _get_legacy_student_page(
     return StudentPage(
         items=[StudentSearchItem(
             user_id=item.profile_id,
-            name=item.name or f"Học sinh #{item.profile_id}",
+            name=_display_name(item),
             username=item.username or f"user_{item.profile_id}",
             points=item.points,
             problem_count=item.problem_count,

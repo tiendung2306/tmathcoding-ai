@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { Link, useSearchParams } from 'react-router-dom';
+import { Link, useLocation, useSearchParams } from 'react-router-dom';
 import { ClassStudentItemData } from '../types';
 import { Card, CardContent } from './ui/card';
 import { Badge } from './ui/badge';
@@ -64,6 +64,7 @@ export const ClassStudentsGrid: React.FC<ClassStudentsGridProps> = ({
   studentHref,
 }) => {
   const [params, setParams] = useSearchParams();
+  const location = useLocation();
   const searchQuery = params.get('q') || '';
   const alertValue = params.get('alert') as AlertFilter;
   const alertFilter: AlertFilter = ['ALL', 'HAS_ALERT', 'STUCK', 'GAP', 'INACTIVE'].includes(alertValue) ? alertValue : 'ALL';
@@ -328,6 +329,7 @@ export const ClassStudentsGrid: React.FC<ClassStudentsGridProps> = ({
             <Link
               key={st.user_id}
               to={studentHref(st.user_id)}
+              state={{ from: location.pathname + location.search }}
               className="bg-card border border-border hover:border-brand-primary/60 hover:shadow-xs p-4 rounded-lg cursor-pointer transition-all duration-150 flex flex-col justify-between group focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary"
             >
               <div className="space-y-3">

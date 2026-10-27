@@ -223,9 +223,6 @@
 .dashboard-nav-link { display: flex; min-height: 44px; align-items: center; gap: .75rem; padding: .625rem .75rem; border-radius: var(--radius-md); color: var(--text-secondary); font-size: .875rem; font-weight: 500; text-decoration: none; }
 .dashboard-nav-link:hover { color: var(--text-primary); background: var(--bg-subtle); }
 .dashboard-nav-link-active { color: #1D4ED8; background: #BFDBFE; }
-.student-back-link { display: inline-flex; min-height: 36px; align-items: center; gap: .25rem; color: var(--text-secondary); font-size: .875rem; font-weight: 500; text-decoration: none; }
-.student-back-link:hover { color: var(--brand-primary); }
-.student-back-link:focus-visible { outline: 2px solid var(--brand-primary); outline-offset: 2px; border-radius: var(--radius-sm); }
 .dashboard-mobile-menu { display: none; }
 
 @media (max-width: 767px) {

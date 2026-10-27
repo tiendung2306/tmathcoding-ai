@@ -275,6 +275,8 @@ class StorageTests(unittest.IsolatedAsyncioTestCase):
                                                                 actor_profile_id=7)
         roots = {root["id"]: root for root in result.skill_forest}
         self.assertEqual(result.configuration_version, 1)
+        self.assertNotIn("evidence", next(iter(roots.values())))
+        self.assertNotIn("tags", next(iter(roots.values())))
         for axis in result.bloom_radar.axes:
             self.assertEqual(axis["ac_count"], roots[axis["key"]]["ac_count"])
             self.assertNotIn("score", axis)
@@ -335,6 +337,16 @@ class StorageTests(unittest.IsolatedAsyncioTestCase):
         second = await service.catalog(self.source, 7)
         self.assertEqual(first[2], second[2])
         self.assertEqual((self.source.tag_requests, self.source.problem_requests), (tag_calls, problem_calls))
+
+    async def test_configuration_reads_and_validation_do_not_scan_problems(self):
+        state = await service.state(self.dashboard, self.source, actor_profile_id=7)
+        await service.validate_document(document(), self.source, actor_profile_id=7)
+        self.assertEqual(len(state["tags"]), 2)
+        self.assertEqual(self.source.problem_requests, 0)
+
+        _, pools, _ = await service.catalog(self.source, 7)
+        self.assertEqual(pools[39], {1})
+        self.assertEqual(self.source.problem_requests, 1)
 
     async def test_ai_only_suggests_unassigned_valid_roots(self):
         doc = document().model_copy(deep=True)

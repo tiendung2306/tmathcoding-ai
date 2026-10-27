@@ -116,20 +116,20 @@ export function StudentSubmissionHistory({ studentId }: { studentId: number }) {
       </div> : <div className="divide-y divide-border">
         {history.data.items.map(item => {
           const tone = resultTone(item.result || item.status);
-          return <article key={item.submission_id} className="flex items-center gap-3 p-3 transition-colors hover:bg-card-hover sm:gap-4 sm:px-5 sm:py-4">
-            <div role="img" aria-label={`${formatPoints(item.points)} điểm, ${item.result || item.status || 'chưa rõ kết quả'}`} className={`flex h-[4.75rem] w-[4.75rem] shrink-0 flex-col items-center justify-center rounded-xl text-center ${tone.tile}`}>
+          return <button key={item.submission_id} type="button" onClick={() => openDetail(item.submission_id)} aria-label={`Xem bài nộp ${item.problem_name}, ${formatPoints(item.points)} điểm`} className="group flex w-full cursor-pointer items-center gap-3 p-3 text-left transition-colors hover:bg-card-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand-primary sm:gap-4 sm:px-5 sm:py-4">
+            <span role="img" aria-label={`${formatPoints(item.points)} điểm, ${item.result || item.status || 'chưa rõ kết quả'}`} className={`flex h-[4.75rem] w-[4.75rem] shrink-0 flex-col items-center justify-center rounded-xl text-center ${tone.tile}`}>
               <strong className="max-w-full truncate px-1 text-base tabular-nums">{formatPoints(item.points)}</strong>
               <span className="mt-1 max-w-full truncate px-1 text-[10px] font-semibold uppercase tracking-wide">{item.result || item.status || '—'}{item.language ? ` · ${item.language}` : ''}</span>
-            </div>
-            <div className="min-w-0 flex-1">
-              <button type="button" onClick={() => openDetail(item.submission_id)} className="block max-w-full truncate text-left text-sm font-semibold text-text-primary hover:text-brand-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary sm:text-base">{item.problem_name}</button>
+            </span>
+            <span className="min-w-0 flex-1">
+              <span className="block max-w-full truncate text-sm font-semibold text-text-primary group-hover:text-brand-primary group-focus-visible:text-brand-primary sm:text-base">{item.problem_name}</span>
               <time className="mt-1 block text-xs text-text-secondary" dateTime={item.date} title={formatDate(item.date)}>{formatRelativeDate(item.date)}</time>
-            </div>
-            <div className="hidden shrink-0 text-right text-xs tabular-nums text-text-secondary sm:block">
+            </span>
+            <span className="hidden shrink-0 text-right text-xs tabular-nums text-text-secondary sm:block">
               <strong className="block font-mono text-text-primary">{formatTime(item.time)}</strong>
               <span className="mt-1 block">{formatMemory(item.memory)}</span>
-            </div>
-          </article>;
+            </span>
+          </button>;
         })}
       </div>}
     </div>

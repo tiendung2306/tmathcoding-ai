@@ -24,12 +24,17 @@ the full ordered result set and returns `409` if a cursor is reused for another
 query or the result set changed. The source queries do not share a database
 snapshot transaction, so this does not guarantee snapshot isolation during writes.
 
-`GET /teachers/{profile_id}/students` accepts `sort=points_desc` for the dashboard
-leaderboard. It returns only the requested cursor page, ordered by points descending
-and profile ID ascending. Each item includes `rank`, calculated over all students
-visible to the actor before applying the optional name, username, or profile-ID
-search. Providers serving this route must preserve the same ordering and global
-rank semantics so the dashboard can paginate without downloading the full roster.
+`GET /teachers/{profile_id}/students` accepts `sort=name`, `name_desc`,
+`points_desc`, or `points_asc`. It returns only the requested cursor page.
+Points sorts include `rank` (the position in descending points order), calculated
+over all students visible to the actor before applying the optional name,
+username, or profile-ID search. Providers serving this route must preserve the
+ordering and global rank semantics so the dashboard can paginate without
+downloading the full roster.
+
+`GET /analytics/tag-problem-pools` returns visible problem IDs for each tag with
+the catalog version. The dashboard uses this relation map for the skill forest;
+providers without the optional route continue to use paginated `GET /problems`.
 
 For local fixture Compose only, the actor/scope lists accept `*` to cover
 fixture users without maintaining a list as students log in. The service token

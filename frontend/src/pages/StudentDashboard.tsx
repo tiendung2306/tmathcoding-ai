@@ -1,6 +1,6 @@
 import React from 'react';
 import { useMutation, useQuery } from '@tanstack/react-query';
-import { Link, useSearchParams } from 'react-router-dom';
+import { useLocation, useSearchParams } from 'react-router-dom';
 import { queryClient } from '../lib/queryClient';
 import { fetchAICommentary, fetchSkillTree, fetchTagAnalytics } from '../services/api';
 import { TimeRange } from '../types';
@@ -13,23 +13,21 @@ import { ErrorPanel } from '../components/ErrorPanel';
 import { StudentSubmissionHistory } from '../components/StudentSubmissionHistory';
 import { Card, CardContent } from '../components/ui/card';
 import { Skeleton } from '../components/ui/skeleton';
-import { ChevronLeft } from 'lucide-react';
 
 interface StudentDashboardProps {
   studentId: number;
   studentName: string;
   avatarUrl: string | null;
-  backTo?: string;
-  className?: string;
 }
 
-export const StudentDashboard: React.FC<StudentDashboardProps> = ({ studentId, studentName, avatarUrl, backTo, className }) => {
+export const StudentDashboard: React.FC<StudentDashboardProps> = ({ studentId, studentName, avatarUrl }) => {
+  const location = useLocation();
   const [params, setParams] = useSearchParams();
   const rangeValue = params.get('range') as TimeRange;
   const timeRange: TimeRange = ['1d', '7d', '30d', '1y', 'all'].includes(rangeValue) ? rangeValue : '7d';
   const activeTab = params.get('tab') === 'submissions' ? 'submissions' : 'overview';
   const isOverview = activeTab === 'overview';
-  const skill = useQuery({ queryKey: ['student', studentId, 'skill', timeRange], queryFn: () => fetchSkillTree(studentId, timeRange), enabled: isOverview });
+  const skill = useQuery({ queryKey: ['student', studentId, 'skill', timeRange], queryFn: ({ signal }) => fetchSkillTree(studentId, timeRange, signal), enabled: isOverview, staleTime: 60_000 });
   const tags = useQuery({ queryKey: ['student', studentId, 'tags', timeRange], queryFn: () => fetchTagAnalytics(studentId, timeRange), enabled: isOverview });
   const ai = useQuery({ queryKey: ['student', studentId, 'ai', timeRange], queryFn: () => fetchAICommentary(studentId, timeRange), staleTime: 5 * 60_000, enabled: isOverview });
   const generateAI = useMutation({
@@ -43,7 +41,7 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({ studentId, s
       const next = new URLSearchParams(previous);
       update(next);
       return next;
-    }, { preventScrollReset: true });
+    }, { preventScrollReset: true, state: location.state });
   };
 
   const handleTimeRangeChange = (newRange: TimeRange) => {
@@ -53,10 +51,6 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({ studentId, s
   };
 
   return <div className="p-3.5 sm:p-5 lg:p-6 max-w-7xl mx-auto space-y-4">
-    {backTo && className && <Link to={backTo} className="student-back-link">
-      <ChevronLeft aria-hidden className="h-4 w-4" />
-      <span>Quay về lớp {className}</span>
-    </Link>}
     <Card className="bg-card border-border">
       <CardContent className="p-4 sm:p-5">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">

@@ -46,7 +46,7 @@ function StudentDetailTabs() {
   return <div className="dashboard-student-subnav">
     {items.map(item => {
       const Icon = item.icon;
-      return <Link key={item.tab} to={hrefFor(item.tab)} className={`dashboard-nav-link${activeTab === item.tab ? ' dashboard-nav-link-active' : ''}`} aria-current={activeTab === item.tab ? 'page' : undefined}>
+      return <Link key={item.tab} to={hrefFor(item.tab)} state={location.state} className={`dashboard-nav-link${activeTab === item.tab ? ' dashboard-nav-link-active' : ''}`} aria-current={activeTab === item.tab ? 'page' : undefined}>
         <Icon aria-hidden className="h-5 w-5 shrink-0" />
         <span>{item.label}</span>
       </Link>;

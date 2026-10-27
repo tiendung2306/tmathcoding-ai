@@ -119,6 +119,11 @@ class CatalogSummary(BaseModel):
     as_of: datetime
 
 
+class TagProblemPools(BaseModel):
+    catalog_version: str
+    tag_problem_ids: dict[int, list[int]]
+
+
 class RequestedTagGroup(BaseModel):
     key: str = Field(min_length=1, max_length=128)
     tag_ids: list[int] = Field(max_length=100)
