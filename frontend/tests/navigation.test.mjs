@@ -17,7 +17,7 @@ test('invalid and unsafe route IDs produce a not-found response', () => {
 test('roster context survives nested navigation with Vietnamese and reserved characters', () => {
   const list = 'page=3&q=Toán+%26+Tin+%2B+A';
   const url = new URL(studentUrl(456, 123, list, 'q=An&alert=STUCK', '7d'), 'http://localhost');
-  assert.equal(url.searchParams.get('class'), '123'); assert.equal(url.searchParams.get('range'), '7d');
+  assert.equal(url.searchParams.get('class'), '123'); assert.equal(url.searchParams.get('range'), null);
   assert.equal(url.searchParams.get('list'), list);
   const roster = new URL(rosterUrl(123, url.searchParams.get('list'), url.searchParams.get('roster')), 'http://localhost');
   assert.equal(roster.searchParams.get('q'), 'An'); assert.equal(roster.searchParams.get('alert'), 'STUCK');

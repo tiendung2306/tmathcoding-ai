@@ -63,7 +63,8 @@ test('roster and student navigation reuse the actual shared context requests', a
   const navigationJS = ts.transpileModule(navigationSource, { compilerOptions: { module: ts.ModuleKind.ESNext } }).outputText
     .replace("'axios'", JSON.stringify(import.meta.resolve('axios')))
     .replace("'../lib/apiClient'", JSON.stringify(apiModule))
-    .replace("'../lib/queryClient'", JSON.stringify(clientModule));
+    .replace("'../lib/queryClient'", JSON.stringify(clientModule))
+    .replace("'./api'", JSON.stringify('data:text/javascript,export function fetchTeacherContest() {}'));
   const { loadClass, loadRoster } = await import(`data:text/javascript;base64,${Buffer.from(navigationJS).toString('base64')}`);
   const originalGet = apiClient.get;
   const requests = [];
