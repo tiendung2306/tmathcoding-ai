@@ -369,8 +369,11 @@
 
 .markdown-content { overflow-wrap: anywhere; }
 .markdown-submission > * + * { margin-top: .75em; }
-.markdown-submission :is(h1, h2, h3, h4, h5, h6) { font-size: inherit; font-weight: 600; }
-.markdown-submission h1, .markdown-submission h2, .markdown-submission h3 { margin-top: 1em; }
+.markdown-submission :is(h1, h2, h3, h4, h5, h6) { font-weight: 600; line-height: 1.4; }
+.markdown-submission h1 { font-size: 1.3em; }
+.markdown-submission h2 { font-size: 1.15em; }
+.markdown-submission h3 { font-size: 1.05em; }
+.markdown-submission h1, .markdown-submission h2, .markdown-submission h3 { margin-top: 1.25em; }
 .markdown-submission :is(ul, ol) { padding-left: 1.5em; }
 .markdown-submission ul { list-style: disc; }
 .markdown-submission ol { list-style: decimal; }
@@ -382,6 +385,7 @@
 .markdown-submission a { color: var(--brand-primary); text-decoration: underline; }
 .markdown-submission .katex { display: inline-block; max-width: 100%; overflow-x: auto; overflow-y: hidden; vertical-align: middle; }
 .markdown-submission .katex-display { max-width: 100%; overflow-x: auto; overflow-y: hidden; }
+.submission-source .hljs { display: inline; overflow: visible; padding: 0; background: transparent; color: #e2e8f0; }
 .forest-submission-link { width: 100%; display: flex; justify-content: space-between; gap: .75rem; flex-wrap: wrap; text-align: left; padding: .75rem; min-height: 48px; font-size: .8125rem; }
 @media (min-width: 1280px) { .forest-roots { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
 @media (max-width: 640px) {
