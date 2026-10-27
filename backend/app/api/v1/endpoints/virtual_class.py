@@ -1,4 +1,5 @@
 import logging
+from datetime import timezone
 from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -11,11 +12,64 @@ from app.schemas.virtual_class import (
     VirtualClassSessionItem, VirtualClassSessionListResponse, VirtualClassSessionDetail
 )
 from app.services.class_access import get_visible_class
+from app.services.contest_access import get_visible_contest
 from app.services.source_gateway import SourceGateway, get_source_gateway
 from app.core.auth import get_current_user
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
+
+
+def _to_utc_aware(value):
+    if value.tzinfo is None:
+        return value.replace(tzinfo=timezone.utc)
+    return value.astimezone(timezone.utc)
+
+
+@router.get("/contests/{contest_id}/live-submissions", response_model=LiveSubmissionsResponse)
+async def get_contest_live_submissions(
+    contest_id: int,
+    source: SourceGateway = Depends(get_source_gateway),
+    actor=Depends(get_current_user),
+):
+    """Read submissions made by students in a contest's mapped classes during its time window."""
+    contest = await get_visible_contest(source, contest_id, actor.profile_id)
+    now = _to_utc_aware(utc_now())
+    starts_at = _to_utc_aware(contest.starts_at)
+    ends_at = _to_utc_aware(contest.ends_at)
+    cutoff = min(now, ends_at)
+    submissions = {}
+
+    if starts_at < cutoff:
+        for class_id in contest.class_ids:
+            cursor = None
+            seen_cursors: set[str] = set()
+            while True:
+                page = await source.list_class_submissions(
+                    class_id,
+                    actor_profile_id=actor.profile_id,
+                    date_from=starts_at,
+                    date_to=cutoff,
+                    after_submission_id=None,
+                    cursor=cursor,
+                    limit=100,
+                )
+                for item in page.items:
+                    submissions[item.submission_id] = item
+                if not page.has_more:
+                    break
+                cursor = page.next_cursor
+                if not cursor or cursor in seen_cursors:
+                    raise HTTPException(502, "Dịch vụ dữ liệu nguồn trả cursor bài nộp không hợp lệ.")
+                seen_cursors.add(cursor)
+
+    ordered = sorted(submissions.values(), key=lambda item: (item.submitted_at, item.submission_id), reverse=True)
+    return LiveSubmissionsResponse(
+        events=[LiveSubmissionEvent(kind="created", submission_id=item.submission_id, record=_live_item(item))
+                for item in ordered],
+        snapshot=True,
+        is_active=contest.status == "active",
+    )
 
 
 @router.get("/sessions/{session_id}", response_model=VirtualClassSessionDetail)

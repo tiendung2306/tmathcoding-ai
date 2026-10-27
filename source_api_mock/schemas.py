@@ -37,6 +37,7 @@ class StudentItem(APIModel):
     name: str
     username: str
     points: float
+    rank: int | None = None
     problem_count: int
     display_rank: str
     updated_at: datetime | None = None

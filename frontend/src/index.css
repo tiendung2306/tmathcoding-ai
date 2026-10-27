@@ -3,6 +3,7 @@
 @tailwind utilities;
 
 @layer components {
+  .contest-card { font-family: "Avenir Next", "Segoe UI", system-ui, sans-serif; }
   .skill-nav { @apply inline-flex items-center min-h-11 px-4 rounded-md text-sm text-text-secondary hover:bg-card-subtle; }
   .skill-nav-active { @apply bg-slate-900 text-white hover:bg-slate-800; }
   .skill-panel { @apply bg-card border border-border rounded-lg min-w-0; }
@@ -62,7 +63,7 @@
   :root {
     /* Surfaces: canvas xám nhạt, card trắng, inset slate-100 */
     --bg-app: #F8FAFC;
-    --bg-sidebar: #FFFFFF;
+    --bg-sidebar: #EFF6FF;
     --bg-card: #FFFFFF;
     --bg-card-hover: #F8FAFC;
     --bg-subtle: #F1F5F9;
@@ -207,11 +208,13 @@
   gap: 1rem;
   padding: .5rem clamp(1rem, 3vw, 2rem);
   border-bottom: 1px solid var(--border-subtle);
-  background: var(--bg-card);
+  background: #1D66B8;
 }
-.dashboard-brand { display: inline-flex; min-height: 44px; align-items: center; gap: .6rem; color: var(--text-primary); font-size: 1rem; font-weight: 700; text-decoration: none; }
+.dashboard-brand { display: inline-flex; min-height: 44px; align-items: center; gap: .6rem; color: #FFFFFF; font-size: 1rem; font-weight: 700; text-decoration: none; }
 .dashboard-account { display: inline-flex; min-width: 0; align-items: center; gap: .65rem; }
-.dashboard-account-avatar { display: inline-flex; width: 36px; height: 36px; flex: 0 0 auto; align-items: center; justify-content: center; border: 1px solid var(--border-strong); border-radius: 50%; color: var(--text-secondary); background: var(--bg-subtle); }
+.dashboard-header .dashboard-account .text-text-primary { color: #FFFFFF; }
+.dashboard-header .dashboard-account .text-text-secondary { color: #DBEAFE; }
+.dashboard-account-avatar { display: inline-flex; width: 36px; height: 36px; flex: 0 0 auto; align-items: center; justify-content: center; border: 1px solid rgb(255 255 255 / .45); border-radius: 50%; color: #FFFFFF; background: rgb(255 255 255 / .14); }
 .dashboard-layout { display: flex; min-height: calc(100dvh - 64px); }
 .dashboard-sidebar { position: sticky; top: 64px; display: flex; width: 15rem; height: calc(100dvh - 64px); flex: 0 0 auto; flex-direction: column; padding: 1rem .75rem; border-right: 1px solid var(--border-subtle); background: var(--bg-sidebar); }
 .dashboard-sidebar-nav { display: grid; gap: .25rem; }
@@ -219,7 +222,7 @@
 .dashboard-student-subnav .dashboard-nav-link { min-height: 40px; padding-block: .5rem; font-size: .8125rem; }
 .dashboard-nav-link { display: flex; min-height: 44px; align-items: center; gap: .75rem; padding: .625rem .75rem; border-radius: var(--radius-md); color: var(--text-secondary); font-size: .875rem; font-weight: 500; text-decoration: none; }
 .dashboard-nav-link:hover { color: var(--text-primary); background: var(--bg-subtle); }
-.dashboard-nav-link-active { color: #1D4ED8; background: #DBEAFE; }
+.dashboard-nav-link-active { color: #1D4ED8; background: #BFDBFE; }
 .student-back-link { display: inline-flex; min-height: 36px; align-items: center; gap: .25rem; color: var(--text-secondary); font-size: .875rem; font-weight: 500; text-decoration: none; }
 .student-back-link:hover { color: var(--brand-primary); }
 .student-back-link:focus-visible { outline: 2px solid var(--brand-primary); outline-offset: 2px; border-radius: var(--radius-sm); }

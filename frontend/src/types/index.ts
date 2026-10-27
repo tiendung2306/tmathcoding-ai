@@ -129,18 +129,6 @@ export interface JobStatusResponseData {
   deadline_at?: string | null;
 }
 
-export interface FailedSubmissionItem {
-  submission_id: number;
-  problem_id: number;
-  problem_code: string;
-  problem_name: string;
-  result: string;
-  status?: string;
-  date?: string;
-  points: number;
-  language_id?: number;
-}
-
 export interface TestCaseDetailItem {
   case: number;
   status: string;
@@ -260,40 +248,47 @@ export interface AICommentaryResponseData {
 // F2.1 / F2.2: Teacher Dashboard: Class Heatmap & Student Detail
 // ==============================================================================
 
-export interface ClassSummaryData {
+export interface TeacherContestData {
+  contest_id: number;
+  code: string;
+  title: string;
+  class_ids: number[];
+  starts_at: string;
+  ends_at: string;
+  status: 'active' | 'upcoming' | 'ended';
+  is_public: boolean;
+}
+
+export interface ContestLiveSubmissionData {
+  id: number;
+  user_id: number;
+  user_name: string;
+  problem_id: number;
+  problem_name: string;
+  date: string;
+  result: string;
+  points: number;
+  time: number | null;
+  memory: number | null;
+  ai_flags: { has_error?: boolean; is_ai_generated?: boolean; is_copied?: boolean };
+}
+
+export interface ContestLiveSubmissionsData {
+  events: { kind: string; submission_id: number; record: ContestLiveSubmissionData | null }[];
+  snapshot: boolean;
+  is_active: boolean;
+}
+
+export interface TeacherContestPageData {
+  items: TeacherContestData[];
+  next_cursor: string | null;
+  has_more: boolean;
+  as_of: string;
+}
+
+export interface ContestOrganizationData {
   id: number;
   name: string;
-  member_count: number;
-  school_year: string | null;
-  managers: { id: number; name: string }[];
-  creation_date: string | null;
-  is_active: boolean;
-  starred_at: string | null;
-}
-
-export type ClassSortField = 'creation_date' | 'name' | 'member_count' | 'id';
-export type SortOrder = 'asc' | 'desc';
-
-export interface ClassListQuery {
-  page: number;
-  page_size: number;
-  q: string;
-  sort_by: ClassSortField;
-  sort_order: SortOrder;
-  starred_only: boolean;
-}
-
-export interface ClassStarData {
-  organization_id: number;
-  starred_at: string | null;
-}
-
-export interface ClassPageData {
-  items: ClassSummaryData[];
-  total: number;
-  page: number;
-  page_size: number;
-  total_pages: number;
 }
 
 export interface StudentSearchItemData {
@@ -330,14 +325,28 @@ export interface ClassStudentItemData {
   last_submission_at: string | null;
 }
 
-export interface StudentRecentSubmissionData {
-  id: number;
-  date: string;
-  result: string;
-  points: number;
+export interface StudentSubmissionHistoryItemData {
+  submission_id: number;
   problem_id: number;
   problem_code: string;
   problem_name: string;
+  language: string | null;
+  result: string | null;
+  status: string | null;
+  date: string;
+  points: number | null;
+  time: number | null;
+  memory: number | null;
+  has_source: boolean;
+}
+
+export interface StudentSubmissionHistoryPageData {
+  items: StudentSubmissionHistoryItemData[];
+  next_cursor: string | null;
+  has_more: boolean;
+  total: number;
+  page_size: number;
+  as_of: string;
 }
 
 export interface StudentDetailResponseData {

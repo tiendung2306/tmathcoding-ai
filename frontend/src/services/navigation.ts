@@ -1,9 +1,17 @@
 import axios from 'axios';
 import { apiClient } from '../lib/apiClient';
 import { queryClient } from '../lib/queryClient';
-import { ClassStudentItemData } from '../types';
+import { ClassStudentItemData, TeacherContestData } from '../types';
+import { fetchTeacherContest } from './api';
 export interface ClassContext { id: number; name: string }
 export interface SessionDetail { id: number; org_id: number; name: string; class_name: string; start_time: string; end_time: string | null }
+export async function loadContest(id: number, signal: AbortSignal): Promise<TeacherContestData> {
+  signal.throwIfAborted();
+  return queryClient.fetchQuery({
+    queryKey: ['teacher-contest', id],
+    queryFn: () => fetchTeacherContest(id, signal),
+  });
+}
 export async function loadClass(id: number, signal: AbortSignal): Promise<ClassContext> {
   signal.throwIfAborted();
   return queryClient.fetchQuery({

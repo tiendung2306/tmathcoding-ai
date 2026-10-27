@@ -7,6 +7,7 @@ from fastapi import HTTPException
 from app.core.time_ranges import get_cutoff_date
 from app.services.source_cleaner import prepare_source
 from app.services.source_gateway import SourceGateway, SourceTagGroupRequest
+from app.services.class_student_service import get_class_students
 from app.schemas.student import AlgorithmRadar, PillarBreakdownItem
 from app.schemas.teacher import (
     ClassHeatmapResponse,
@@ -277,20 +278,7 @@ class AlgorithmCompetencyService:
 
     @staticmethod
     async def _class_students(source: SourceGateway, class_id: int, actor_profile_id: int):
-        students = []
-        cursor = None
-        seen: set[str] = set()
-        while True:
-            page = await source.list_class_students(
-                class_id, actor_profile_id=actor_profile_id, cursor=cursor, limit=100,
-            )
-            students.extend(page.items)
-            if not page.has_more:
-                return students
-            cursor = page.next_cursor
-            if not cursor or cursor in seen:
-                raise HTTPException(502, "Dịch vụ dữ liệu nguồn trả phân trang lớp không hợp lệ.")
-            seen.add(cursor)
+        return await get_class_students(source, class_id, actor_profile_id)
 
     @staticmethod
     async def get_class_competency_heatmap(

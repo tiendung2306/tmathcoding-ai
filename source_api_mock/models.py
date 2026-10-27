@@ -10,7 +10,7 @@ profile = Table(
 user = Table(
     "auth_user", metadata,
     Column("id", Integer, primary_key=True), Column("username", String),
-    Column("is_active", SmallInteger),
+    Column("email", String), Column("is_active", SmallInteger),
 )
 school_year = Table(
     "judge_schoolyear", metadata,

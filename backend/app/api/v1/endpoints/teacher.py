@@ -1,12 +1,8 @@
 from fastapi import APIRouter, Depends, Query, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.dashboard_database import get_dashboard_db
-from app.core.config_database import get_config_db
 from app.schemas.teacher import (
-    ClassPage,
-    ClassStarResponse,
-    ClassSortField,
-    SortOrder,
+    ContestOrganization,
     StudentSearchItem,
     StudentPage,
     ClassHeatmapResponse,
@@ -17,11 +13,11 @@ from app.schemas.analytics import StudentTagAnalyticsResponse
 from app.services.tag_analytics_service import tag_analytics_service
 from app.services.heatmap_service import heatmap_service
 from app.services.algorithm_competency_service import algorithm_competency_service
-from app.services.class_catalog_service import get_class_page
 from app.services.student_catalog_service import get_student_page
-from app.services.class_preferences_service import set_class_star
 from app.services.class_access import get_visible_class
-from app.services.source_gateway import SourceGateway, get_source_gateway
+from app.services.contest_access import get_visible_contest
+from app.services.class_student_service import get_class_students as load_class_students
+from app.services.source_gateway import SourceContest, SourceContestPage, SourceGateway, get_source_gateway
 from app.core.auth import get_current_user
 
 router = APIRouter()
@@ -46,45 +42,56 @@ async def get_class_context(
     organization = await get_visible_class(source, org_id, actor.profile_id)
     return {"id": organization.class_id, "name": organization.name}
 
-@router.get("/my-classes", response_model=ClassPage)
-async def get_teacher_classes(
+@router.get("/contest-organizations", response_model=list[ContestOrganization])
+async def get_contest_organizations(
     teacher_id: int | None = Query(None, ge=1),
-    page: int = Query(1, ge=1),
-    page_size: int = Query(24, ge=1, le=100),
-    q: str = Query("", max_length=128),
-    sort_by: ClassSortField = Query("creation_date"),
-    sort_order: SortOrder = Query("desc"),
-    starred_only: bool = Query(False),
     source: SourceGateway = Depends(get_source_gateway),
     actor=Depends(get_current_user),
-    config_db: AsyncSession = Depends(get_config_db),
 ):
-    """Danh sách lớp mà actor quản lý, kèm số học sinh từ dữ liệu nguồn."""
     target = _target_profile_id(teacher_id, actor)
-    return await get_class_page(
-        source, target, page, page_size, q, sort_by, sort_order, config_db,
-        starred_only, actor_profile_id=actor.profile_id,
+    items = []
+    cursor = None
+    seen_cursors: set[str] = set()
+    while True:
+        page = await source.list_classes(
+            target, actor_profile_id=actor.profile_id, q=None, cursor=cursor,
+            limit=100, sort="name", order="asc",
+            virtual_active_class_ids=[], starred_class_ids=[],
+        )
+        items.extend(ContestOrganization(id=item.class_id, name=item.name or f"Lớp {item.class_id}")
+                     for item in page.items)
+        if not page.has_more:
+            return items
+        cursor = page.next_cursor
+        if not cursor or cursor in seen_cursors:
+            raise HTTPException(502, "Dịch vụ dữ liệu nguồn trả cursor tổ chức không hợp lệ.")
+        seen_cursors.add(cursor)
+
+
+@router.get("/my-contests", response_model=SourceContestPage)
+async def get_teacher_contests(
+    teacher_id: int | None = Query(None, ge=1),
+    state: str = Query("all", pattern="^(active|ended|all)$"),
+    q: str = Query("", max_length=128),
+    cursor: str | None = Query(None),
+    limit: int = Query(24, ge=1, le=100),
+    source: SourceGateway = Depends(get_source_gateway),
+    actor=Depends(get_current_user),
+):
+    target = _target_profile_id(teacher_id, actor)
+    return await source.list_teacher_contests(
+        target, actor_profile_id=actor.profile_id, state=state, at=None,
+        cursor=cursor, limit=limit, q=q.strip() or None,
     )
 
 
-@router.put("/classes/{org_id}/star", response_model=ClassStarResponse)
-async def star_class(
-    org_id: int,
+@router.get("/my-contests/{contest_id}", response_model=SourceContest)
+async def get_teacher_contest(
+    contest_id: int,
     source: SourceGateway = Depends(get_source_gateway),
-    config_db: AsyncSession = Depends(get_config_db),
     actor=Depends(get_current_user),
 ):
-    return await set_class_star(source, config_db, actor.profile_id, org_id, True)
-
-
-@router.delete("/classes/{org_id}/star", response_model=ClassStarResponse)
-async def unstar_class(
-    org_id: int,
-    source: SourceGateway = Depends(get_source_gateway),
-    config_db: AsyncSession = Depends(get_config_db),
-    actor=Depends(get_current_user),
-):
-    return await set_class_star(source, config_db, actor.profile_id, org_id, False)
+    return await get_visible_contest(source, contest_id, actor.profile_id)
 
 @router.get("/my-students", response_model=StudentPage)
 async def get_teacher_students(
@@ -175,19 +182,7 @@ async def get_class_students(
     actor=Depends(get_current_user),
 ):
     """Danh sách học sinh hiện thuộc lớp theo dữ liệu nguồn."""
-    page = await source.list_class_students(org_id, actor_profile_id=actor.profile_id, limit=100)
-    students = list(page.items)
-    cursor = page.next_cursor
-    seen_cursors: set[str] = set()
-    while page.has_more:
-        if not cursor or cursor in seen_cursors:
-            raise HTTPException(status_code=502, detail="Dịch vụ dữ liệu nguồn trả phân trang không hợp lệ.")
-        seen_cursors.add(cursor)
-        page = await source.list_class_students(
-            org_id, actor_profile_id=actor.profile_id, cursor=cursor, limit=100,
-        )
-        students.extend(page.items)
-        cursor = page.next_cursor
+    students = await load_class_students(source, org_id, actor.profile_id)
     return [ClassStudentItem(
         user_id=item.profile_id,
         name=item.name or f"Học sinh #{item.profile_id}",

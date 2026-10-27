@@ -1,17 +1,19 @@
-import React, { lazy, Suspense, useCallback, useEffect, useMemo } from 'react';
+import React, { lazy, Suspense, useEffect } from 'react';
 import axios from 'axios';
 import { apiClient } from './lib/apiClient';
-import { createBrowserRouter, Link, isRouteErrorResponse, redirect, useLoaderData, useLocation, useNavigate, useRevalidator, useRouteError, useSearchParams } from 'react-router-dom';
+import { createBrowserRouter, Link, isRouteErrorResponse, redirect, useLoaderData, useLocation, useRevalidator, useRouteError, useSearchParams } from 'react-router-dom';
 import App, { PageHandle } from './App';
 import { LoginPage } from './pages/LoginPage';
 import { getAccount, type AuthAccount } from './services/auth';
-import { ClassTable } from './components/ClassTable';
 import { ClassStudentsGrid } from './components/ClassStudentsGrid';
 import { StudentsPage } from './pages/StudentsPage';
+import { TeacherHome } from './pages/TeacherHome';
+import { ContestsPage } from './pages/ContestsPage';
+import { ContestRoomPage } from './pages/ContestRoomPage';
 import { VirtualClassSessions } from './components/VirtualClassSessions';
-import { ClassListQuery, ClassStudentItemData, ClassPageData } from './types';
-import { classQuery, classSearch, positiveId, rosterUrl, studentUrl } from './lib/navigation';
-import { ClassContext, loadClass, loadProfile, loadRoster, loadSession, routeRequest, SessionDetail } from './services/navigation';
+import { ClassStudentItemData } from './types';
+import { positiveId, rosterUrl, studentUrl } from './lib/navigation';
+import { ClassContext, loadClass, loadContest, loadProfile, loadRoster, loadSession, routeRequest, SessionDetail } from './services/navigation';
 
 const StudentDashboard = lazy(() => import('./pages/StudentDashboard').then(module => ({ default: module.StudentDashboard })));
 const AdminDashboard = lazy(() => import('./pages/AdminDashboard').then(module => ({ default: module.AdminDashboard })));
@@ -32,30 +34,12 @@ function RouteError() {
     <h1 id="route-error-title" tabIndex={-1} ref={node => node?.focus({ preventScroll: true })} className="text-xl font-semibold">{title}</h1>
     <p role="alert" className="mt-3 text-text-secondary">{unavailable ? 'Địa chỉ không hợp lệ hoặc dữ liệu không còn trong danh sách được phép xem.' : status === 401 ? 'Phiên đăng nhập đã hết hạn.' : forbidden ? 'Bạn không có quyền xem dữ liệu này.' : 'Không thể kết nối để tải dữ liệu. Hãy thử lại.'}</p>
     <div className="mt-5 flex flex-wrap gap-3">
-      {status === 401 && <Link to={`/?next=${encodeURIComponent(pathname)}`} className="skill-primary">Đăng nhập</Link>}
+      {status === 401 && <Link to={`/login?next=${encodeURIComponent(pathname)}`} className="skill-primary">Đăng nhập</Link>}
       {!unavailable && !forbidden && <button disabled={revalidator.state !== 'idle'} onClick={() => revalidator.revalidate()} className="min-h-11 px-4 rounded-md bg-brand-primary text-white">{revalidator.state !== 'idle' ? 'Đang thử lại...' : 'Thử lại'}</button>}
-      <Link to={pathname.startsWith('/teacher') ? '/teacher/classes' : '/student/students'} className="min-h-11 px-4 inline-flex items-center rounded-md border border-border">Về danh sách</Link>
+      <Link to={pathname.startsWith('/teacher') ? '/teacher/contests' : '/student/students'} className="min-h-11 px-4 inline-flex items-center rounded-md border border-border">Về danh sách</Link>
       <Link to="/admin" className="min-h-11 px-3 inline-flex items-center underline">Về bảng điều khiển</Link>
     </div>
   </section>;
-}
-
-function ClassesPage({ area }: { area: 'student' | 'teacher' }) {
-  const [params, setParams] = useSearchParams();
-  const initialData = useLoaderData() as ClassPageData;
-  const query = useMemo(() => classQuery(params), [params]);
-  const canonical = classSearch(query);
-  useEffect(() => { if (params.toString() !== canonical) setParams(canonical, { replace: true }); }, [canonical, params, setParams]);
-  const update = useCallback((next: ClassListQuery, options?: { replace?: boolean }) => {
-    const current = classQuery(new URLSearchParams(window.location.search));
-    setParams(classSearch(next), { replace: options?.replace ?? next.q !== current.q, preventScrollReset: next.q !== current.q });
-  }, [setParams]);
-  const classHref = (id: number) => {
-    if (area === 'student') return rosterUrl(id, canonical);
-    const search = canonical ? `?${new URLSearchParams({ list: canonical })}` : '';
-    return `/teacher/classes/${id}/sessions${search}`;
-  };
-  return <ClassTable query={query} onQueryChange={update} classHref={classHref} initialData={initialData} />;
 }
 
 interface RosterData { organization: ClassContext; students: ClassStudentItemData[] }
@@ -77,10 +61,9 @@ function StudentPage() {
 }
 function SessionsPage() {
   const data = useLoaderData() as ClassContext;
-  const navigate = useNavigate();
   const [params] = useSearchParams();
   const suffix = params.get('list') ? `?${new URLSearchParams({ list: params.get('list')! })}` : '';
-  return <VirtualClassSessions key={data.id} selectedOrgId={data.id} className={data.name} sessionHref={id => `/teacher/sessions/${id}${suffix}`} onEnterSession={id => navigate(`/teacher/sessions/${id}${suffix}`)} />;
+  return <VirtualClassSessions key={data.id} selectedOrgId={data.id} className={data.name} sessionHref={id => `/teacher/sessions/${id}${suffix}`} />;
 }
 function SessionPage() {
   const data = useLoaderData() as SessionDetail;
@@ -95,7 +78,7 @@ async function requireReadyAccount(request: Request): Promise<AuthAccount> {
   } catch (error) {
     if (axios.isAxiosError(error) && error.response?.status === 401) {
       const url = new URL(request.url);
-      throw redirect(`/?next=${encodeURIComponent(url.pathname + url.search)}`);
+      throw redirect(`/login?next=${encodeURIComponent(url.pathname + url.search)}`);
     }
     throw error;
   }
@@ -107,28 +90,32 @@ async function guardedRouteRequest<T>(request: Request, load: () => Promise<T>):
   return routeRequest(load);
 }
 
-const classesLoader = ({ request }: { request: Request }) => guardedRouteRequest(request, async () => (await apiClient.get('/api/v1/teacher/my-classes', { params: classQuery(new URL(request.url).searchParams), signal: request.signal })).data);
 const studentsLoader = ({ request }: { request: Request }) => guardedRouteRequest(request, async () => {
   const params = new URL(request.url).searchParams;
   const page = Math.max(1, Number.parseInt(params.get('page') || '1', 10) || 1);
   return (await apiClient.get('/api/v1/teacher/my-students', { params: { page, q: (params.get('q') || '').trim().slice(0, 128) }, signal: request.signal })).data;
 });
 export const router = createBrowserRouter([
-  { path: '/', loader: async () => {
+  { path: '/', loader: () => redirect('/teacher/home'), errorElement: <RouteError /> },
+  { path: '/login', loader: async () => {
       try {
         await getAccount();
-        return redirect('/student/students');
+        return redirect('/teacher/home');
       } catch (error) {
         if (axios.isAxiosError(error) && error.response?.status === 401) return null;
         throw error;
       }
     }, element: <LoginPage />, errorElement: <RouteError /> },
-  { path: '/login', loader: ({ request }) => redirect(`/${new URL(request.url).search}`) },
   { path: '/settings', loader: () => redirect('/student/students') },
   { id: 'app', loader: ({ request }) => requireReadyAccount(request), element: <App />, errorElement: <RouteError />, children: [
+    { path: '/teacher/home', element: <TeacherHome />, handle: { title: 'Trang chủ' } satisfies PageHandle },
+    { path: '/teacher/contests', element: <ContestsPage />, errorElement: <RouteError />, handle: { title: 'Cuộc thi' } satisfies PageHandle },
+    { path: '/teacher/contests/:contestId', element: <ContestRoomPage />, errorElement: <RouteError />,
+      loader: ({ params, request }) => guardedRouteRequest(request, () => loadContest(positiveId(params.contestId), request.signal)),
+      handle: { title: data => data?.title || 'Phòng cuộc thi' } satisfies PageHandle },
+    { path: '/teacher/classes', loader: () => redirect('/teacher/contests') },
     { path: '/student/classes', loader: () => redirect('/student/students'), element: <StudentsPage /> },
     { path: '/student/students', loader: studentsLoader, element: <StudentsPage />, errorElement: <RouteError />, handle: { title: 'Học sinh' } satisfies PageHandle },
-    { path: '/teacher/classes', loader: classesLoader, element: <ClassesPage area="teacher" />, errorElement: <RouteError />, handle: { title: 'Lớp học ảo' } satisfies PageHandle },
     { path: '/student/classes/:classId/students', element: <RosterPage />, errorElement: <RouteError />,
       shouldRevalidate: ({ currentParams, nextParams, defaultShouldRevalidate, currentUrl, nextUrl }) => currentParams.classId !== nextParams.classId || (currentUrl.search === nextUrl.search && defaultShouldRevalidate),
       loader: ({ params, request }) => guardedRouteRequest(request, async () => {

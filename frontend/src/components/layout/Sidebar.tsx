@@ -1,6 +1,7 @@
-import React from 'react';
-import { BarChart3, FileText, GraduationCap, Presentation, ShieldCheck, type LucideIcon } from 'lucide-react';
+import React, { useState } from 'react';
+import { BarChart3, FileText, GraduationCap, Home, LogOut, ShieldCheck, Trophy, type LucideIcon } from 'lucide-react';
 import { Link, NavLink, useLocation } from 'react-router-dom';
+import { logout } from '../../services/auth';
 
 type NavigationItem = {
   to: string;
@@ -9,8 +10,9 @@ type NavigationItem = {
 };
 
 const primaryItems: NavigationItem[] = [
+  { to: '/teacher/home', label: 'Trang chủ', icon: Home },
   { to: '/student/students', label: 'Học sinh', icon: GraduationCap },
-  { to: '/teacher/classes', label: 'Lớp học', icon: Presentation },
+  { to: '/teacher/contests', label: 'Cuộc thi', icon: Trophy },
   { to: '/admin', label: 'Quản trị viên', icon: ShieldCheck },
 ];
 
@@ -61,17 +63,43 @@ function PrimaryNavigation() {
   </>;
 }
 
+function LogoutButton() {
+  const [logoutError, setLogoutError] = useState(false);
+  const signOut = async () => {
+    try {
+      await logout();
+      window.location.assign('/login');
+    } catch {
+      setLogoutError(true);
+    }
+  };
+
+  return <div className="grid gap-2">
+    <button type="button" onClick={signOut} className="flex min-h-11 w-full items-center gap-2 rounded-md bg-red-700 px-3 text-sm font-medium text-white hover:bg-red-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-700 focus-visible:ring-offset-2">
+      <LogOut aria-hidden className="h-4 w-4 shrink-0" />
+      <span>Đăng xuất</span>
+    </button>
+    {logoutError && <span role="alert" className="text-xs text-red-800">Chưa đăng xuất được. Hãy thử lại.</span>}
+  </div>;
+}
+
 export function Sidebar() {
   return <>
     <aside className="dashboard-sidebar" aria-label="Điều hướng chính">
       <nav className="dashboard-sidebar-nav">
         <PrimaryNavigation />
       </nav>
+      <div className="mt-auto border-t border-border pt-3">
+        <LogoutButton />
+      </div>
     </aside>
     <details className="dashboard-mobile-menu">
       <summary>Menu</summary>
       <nav aria-label="Điều hướng chính trên điện thoại">
         <PrimaryNavigation />
+        <div className="border-t border-border pt-3">
+          <LogoutButton />
+        </div>
       </nav>
     </details>
   </>;

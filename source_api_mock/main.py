@@ -30,7 +30,7 @@ from .schemas import (
     GroupProblemCount, LanguageItem, Manager, Page, ProblemGroupItem, ProblemGroupPage,
     ProblemItem, ProblemPage, SchoolYear, StudentDetail, StudentItem, TagItem, TagPage,
     TagProblemCount, ProblemFact, ProblemFactsPage, RequestedGroupStat,
-    StudentAggregateItem, StudentAggregateRequest, StudentAggregateResponse,
+    StudentAggregateItem, StudentAggregateRequest, StudentAggregateResponse, ContestItem,
     StudentGroupStat, StudentTagStat,
     SubmissionChange, SubmissionChangesPage, SubmissionDetail, SubmissionItem,
     SubmissionPage, StudentSubmissionSample, StudentSubmissionSamplesResponse,
@@ -277,7 +277,10 @@ def submission_rows(db: Session, *, class_id: int | None = None, profile_id: int
                     from_at: datetime | None = None, to_at: datetime | None = None,
                     offset: int | None = None, limit: int | None = None,
                     class_order: bool = False, after_submission_id: int | None = None,
-                    after_key: tuple[datetime, int] | None = None):
+                    after_key: tuple[datetime, int] | None = None,
+                    student_order: str | None = None, result: str | None = None,
+                    exclude_result: str | None = None, problem_id: int | None = None,
+                    only_with_source: bool = False):
     has_source = select(submission_source.c.id).where(
         submission_source.c.submission_id == submission.c.id,
     ).exists()
@@ -302,6 +305,14 @@ def submission_rows(db: Session, *, class_id: int | None = None, profile_id: int
         )
     if profile_id is not None:
         stmt = stmt.where(submission.c.user_id == profile_id)
+    if result is not None:
+        stmt = stmt.where(submission.c.result == result)
+    if exclude_result is not None:
+        stmt = stmt.where(or_(submission.c.result != exclude_result, submission.c.result.is_(None)))
+    if problem_id is not None:
+        stmt = stmt.where(submission.c.problem_id == problem_id)
+    if only_with_source:
+        stmt = stmt.where(has_source)
     if submission_id is not None:
         stmt = stmt.where(submission.c.id == submission_id)
     if submission_ids is not None:
@@ -318,7 +329,11 @@ def submission_rows(db: Session, *, class_id: int | None = None, profile_id: int
         stmt = stmt.where(submission.c.date >= as_utc(from_at).replace(tzinfo=None))
     if to_at is not None:
         stmt = stmt.where(submission.c.date < as_utc(to_at).replace(tzinfo=None))
-    if class_order:
+    if student_order is not None:
+        ordering = submission.c.date.desc() if student_order == "desc" else submission.c.date.asc()
+        tie_breaker = submission.c.id.desc() if student_order == "desc" else submission.c.id.asc()
+        stmt = stmt.where(submission.c.date.is_not(None)).order_by(ordering, tie_breaker)
+    elif class_order:
         stmt = stmt.order_by(submission.c.date.desc(), submission.c.id.desc())
     else:
         stmt = stmt.order_by(submission.c.id.asc())
@@ -439,6 +454,44 @@ def _class_submission_count(db: Session, class_id: int,
     if after_submission_id is not None:
         stmt = stmt.where(submission.c.id > after_submission_id)
     return int(db.execute(stmt).scalar_one() or 0)
+
+
+def _student_submission_snapshot(
+    db: Session, profile_id: int, *, from_at: datetime | None = None,
+    to_at: datetime | None = None, result: str | None = None,
+    exclude_result: str | None = None, problem_id: int | None = None,
+    only_with_source: bool = False,
+) -> tuple[int, tuple]:
+    source_exists = select(submission_source.c.id).where(
+        submission_source.c.submission_id == submission.c.id,
+    ).exists()
+    stmt = select(
+        func.count(submission.c.id), func.max(submission.c.id), func.sum(submission.c.id),
+        func.sum(submission.c.points), func.sum(submission.c.time), func.sum(submission.c.memory),
+        func.min(submission.c.date), func.max(submission.c.date),
+        func.max(submission.c.judged_date), func.max(submission.c.rejudged_date),
+        func.max(submission.c.version_update),
+        func.sum(case((submission.c.result == "AC", 1), else_=0)),
+        func.sum(case((submission.c.result == "WA", 1), else_=0)),
+        func.sum(case((submission.c.result == "TLE", 1), else_=0)),
+        func.sum(case((submission.c.status == "D", 1), else_=0)),
+        func.sum(case((submission.c.status == "IE", 1), else_=0)),
+    ).where(submission.c.user_id == profile_id, submission.c.date.is_not(None))
+    if from_at is not None:
+        stmt = stmt.where(submission.c.date >= as_utc(from_at).replace(tzinfo=None))
+    if to_at is not None:
+        stmt = stmt.where(submission.c.date < as_utc(to_at).replace(tzinfo=None))
+    if result is not None:
+        stmt = stmt.where(submission.c.result == result)
+    if exclude_result is not None:
+        stmt = stmt.where(or_(submission.c.result != exclude_result, submission.c.result.is_(None)))
+    if problem_id is not None:
+        stmt = stmt.where(submission.c.problem_id == problem_id)
+    if only_with_source:
+        stmt = stmt.where(source_exists)
+    values = db.execute(stmt).one()
+    total = int(values[0] or 0)
+    return total, tuple(values[1:])
 
 
 def _ensure_change_baseline(db: Session, class_id: int) -> int:
@@ -603,11 +656,17 @@ def _change_event_in_range(event: dict, from_at: datetime | None, to_at: datetim
 
 
 def student_item(row) -> dict:
+    email = (row.get("email") or "").strip().lower()
+    avatar_url = None
+    if email:
+        email_hash = hashlib.md5(email.encode("utf-8"), usedforsecurity=False).hexdigest()
+        avatar_url = f"https://www.gravatar.com/avatar/{email_hash}?d=identicon&s=96"
     return {
         "profile_id": row["profile_id"], "name": (row["name"] or f"Profile {row['profile_id']}"),
         "username": row["username"] or f"user_{row['profile_id']}", "points": float(row["points"] or 0),
         "problem_count": int(row["problem_count"] or 0), "display_rank": row["display_rank"] or "user",
-        "updated_at": None,
+        "rank": row.get("rank"),
+        "updated_at": None, "avatar_url": avatar_url,
     }
 
 
@@ -689,7 +748,8 @@ def paged_contests(items, cursor, limit, scope):
 
 
 def teacher_contest_items(db: Session, profile_id: int, actor_id: int, state: str,
-                          at: datetime, class_id: int | None = None):
+                          at: datetime, class_id: int | None = None,
+                          q: str | None = None):
     all_access = is_super_admin(db, actor_id)
     owners = contest_owner_ids(db, profile_id)
     if all_access:
@@ -711,23 +771,22 @@ def teacher_contest_items(db: Session, profile_id: int, actor_id: int, state: st
     for contest_id, mapped_class_id in db.execute(mapping_stmt):
         mappings.setdefault(contest_id, []).append(mapped_class_id)
 
-    if all_access:
+    if all_access or candidate_ids is None:
         contest_stmt = select(contest)
         if candidate_ids is not None:
             contest_stmt = contest_stmt.where(contest.c.id.in_(candidate_ids or {-1}))
         rows = list(db.execute(contest_stmt).mappings())
     else:
-        eligible_ids = (set(mappings) | owners)
-        if candidate_ids is not None:
-            eligible_ids &= candidate_ids
+        eligible_ids = (set(mappings) | owners) & (candidate_ids or set())
         if not eligible_ids:
             return []
         rows = list(db.execute(select(contest).where(contest.c.id.in_(eligible_ids))).mappings())
 
     result = []
+    term = (q or "").strip().casefold()
     for row in rows:
         owned = row["id"] in owners
-        if not all_access and not row["is_visible"] and not owned:
+        if class_id is not None and not all_access and not row["is_visible"] and not owned:
             continue
         mapped_ids = mappings.get(row["id"], [])
         if class_id is not None and row["id"] not in candidate_ids:
@@ -735,18 +794,33 @@ def teacher_contest_items(db: Session, profile_id: int, actor_id: int, state: st
         status = contest_status(row, at)
         if state != "all" and status != state:
             continue
+        if term and term not in " ".join((row["name"] or "", row["key"] or "", str(row["id"]))).casefold():
+            continue
         item = contest_item(row, sorted(set(mapped_ids)), at)
         result.append(item)
-    result.sort(key=lambda item: (item["starts_at"] is None,
-                                  item["starts_at"] or datetime.max.replace(tzinfo=timezone.utc),
-                                  item["contest_id"]))
+    result.sort(key=lambda item: (
+        item["starts_at"] is not None,
+        item["starts_at"] or datetime.min.replace(tzinfo=timezone.utc),
+        item["contest_id"],
+    ), reverse=True)
     return result
+
+
+def teacher_contest_detail(db: Session, profile_id: int, actor_id: int, contest_id: int, at: datetime):
+    row = db.execute(select(contest).where(contest.c.id == contest_id)).mappings().first()
+    if row is None:
+        raise HTTPException(404, {"code": "not_found", "message": "Contest not found"})
+
+    all_access = is_super_admin(db, actor_id)
+    class_scope = None if all_access else managed_class_ids(db, actor_id)
+    mappings = contest_mappings(db, [contest_id], class_scope).get(contest_id, [])
+    return contest_item(row, sorted(set(mappings)), at)
 
 
 def list_students_query(db: Session, actor_id: int, class_id: int | None = None, q: str | None = None):
     stmt = select(
         profile.c.id.label("profile_id"), profile.c.name, user.c.username, profile.c.points,
-        profile.c.problem_count, profile.c.display_rank,
+        user.c.email, profile.c.problem_count, profile.c.display_rank,
     ).select_from(profile.outerjoin(user, user.c.id == profile.c.user_id))
     if class_id is not None:
         stmt = stmt.join(profile_organization, profile_organization.c.profile_id == profile.c.id).where(
@@ -897,17 +971,26 @@ def _profile_for_class(db: Session, class_id: int, actor_id: int):
     return actor_id
 
 
-def _paged_students(db, profile_id, class_id, q, cursor, limit, class_view=False, actor_id=None):
+def _paged_students(db, profile_id, class_id, q, cursor, limit, class_view=False, actor_id=None, sort="name"):
     scope_actor = actor_id if actor_id is not None else profile_id
     q = q.strip() if q and q.strip() else None
     cursor = cursor.strip() if cursor and cursor.strip() else None
-    stmt = list_students_query(db, profile_id, class_id, q)
+    stmt = list_students_query(db, profile_id, class_id, None if sort == "points_desc" else q)
     rows = list(db.execute(stmt).mappings())
     items = [student_item(row) for row in rows]
+    if sort == "points_desc":
+        items.sort(key=lambda item: (-item["points"], item["profile_id"]))
+        for rank, item in enumerate(items, 1):
+            item["rank"] = rank
+        if q:
+            term = q.casefold()
+            items = [item for item in items if term in " ".join((
+                item["name"], item["username"], str(item["profile_id"]),
+            )).casefold()]
     if class_view:
         items = [{**item, "avatar_url": None, "joined_at": None} for item in items]
     scope = json.dumps({"actor_id": scope_actor, "profile_id": profile_id, "class_id": class_id, "q": q, "limit": limit,
-                        "class_view": class_view}, sort_keys=True, separators=(",", ":"))
+                        "class_view": class_view, "sort": sort}, sort_keys=True, separators=(",", ":"))
     snapshot = fingerprint(items)
     offset = cursor_offset(cursor, "students", scope, snapshot)
     return page_result(items[offset:offset + limit], len(items), offset, limit, "students", scope, snapshot)
@@ -915,11 +998,11 @@ def _paged_students(db, profile_id, class_id, q, cursor, limit, class_view=False
 
 @app.get(f"{API_PREFIX}/teachers/{{profile_id}}/students", response_model=Page[StudentItem],
          responses={**COMMON_ERROR_RESPONSES, **error_responses(404, 409)})
-def teacher_students(profile_id: int, q: str | None = None, cursor: str | None = None, limit: int = Query(24, ge=1, le=100), db: Session = Depends(get_db), actor_id: int = Depends(actor_profile_id)):
+def teacher_students(profile_id: int, q: str | None = None, cursor: str | None = None, limit: int = Query(24, ge=1, le=100), sort: str = Query("name", pattern="^(name|points_desc)$"), db: Session = Depends(get_db), actor_id: int = Depends(actor_profile_id)):
     require_actor_profile(db, actor_id, profile_id)
     if profile_row(db, profile_id) is None:
         raise HTTPException(404, {"code": "not_found", "message": "Profile not found"})
-    return _paged_students(db, profile_id, None, q, cursor, limit, actor_id=actor_id)
+    return _paged_students(db, profile_id, None, q, cursor, limit, actor_id=actor_id, sort=sort)
 
 
 @app.get(f"{API_PREFIX}/classes/{{class_id}}/students", response_model=Page[ClassStudent],
@@ -945,17 +1028,32 @@ def get_student(profile_id: int, db: Session = Depends(get_db), actor_id: int = 
 
 @app.get(f"{API_PREFIX}/teachers/{{profile_id}}/contests", response_model=ContestPage,
          responses={**COMMON_ERROR_RESPONSES, **error_responses(404, 409)})
-def teacher_contests(profile_id: int, state: str = Query("all", pattern="^(active|upcoming|ended|all)$"), at: datetime | None = None, cursor: str | None = None, limit: int = Query(24, ge=1, le=100), db: Session = Depends(get_db), actor_id: int = Depends(actor_profile_id)):
+def teacher_contests(profile_id: int, state: str = Query("all", pattern="^(active|upcoming|ended|all)$"), at: datetime | None = None, cursor: str | None = None, limit: int = Query(24, ge=1, le=100), q: str | None = Query(None, max_length=128), db: Session = Depends(get_db), actor_id: int = Depends(actor_profile_id)):
     require_actor_profile(db, actor_id, profile_id)
     if profile_row(db, profile_id) is None:
         raise HTTPException(404, {"code": "not_found", "message": "Profile not found"})
     evaluated_at = as_utc(at or utc_now())
-    items = teacher_contest_items(db, profile_id, actor_id, state, evaluated_at)
+    items = teacher_contest_items(db, profile_id, actor_id, state, evaluated_at, q=q)
     result = paged_contests(items, cursor, limit, {
         "endpoint": "teacher_contests", "profile_id": profile_id, "actor_id": actor_id,
-        "state": state, "at": as_utc(at).isoformat() if at is not None else None, "limit": limit,
+        "state": state, "at": as_utc(at).isoformat() if at is not None else None,
+        "limit": limit, "q": (q or "").strip(),
     })
     return result
+
+
+@app.get(f"{API_PREFIX}/teachers/{{profile_id}}/contests/{{contest_id}}", response_model=ContestItem,
+         responses={**COMMON_ERROR_RESPONSES, **error_responses(404)})
+def teacher_contest_detail_route(
+    profile_id: int,
+    contest_id: int,
+    db: Session = Depends(get_db),
+    actor_id: int = Depends(actor_profile_id),
+):
+    require_actor_profile(db, actor_id, profile_id)
+    if profile_row(db, profile_id) is None:
+        raise HTTPException(404, {"code": "not_found", "message": "Profile not found"})
+    return teacher_contest_detail(db, profile_id, actor_id, contest_id, as_utc(utc_now()))
 
 
 @app.get(f"{API_PREFIX}/classes/{{class_id}}/contests", response_model=ContestPage,
@@ -1024,26 +1122,27 @@ def student_submissions(
         raise HTTPException(404, {"code": "not_found", "message": "Profile not found"})
     if not submission_visible(db, profile_id, actor_id):
         raise HTTPException(404, {"code": "not_found", "message": "Student not found"})
-    rows = submission_rows(db, profile_id=profile_id)
-    items = _date_filtered_items(rows, from_at, to_at)
-    if result is not None:
-        items = [item for item in items if item["result"] == result]
-    if exclude_result is not None:
-        items = [item for item in items if item["result"] != exclude_result]
-    if problem_id is not None:
-        items = [item for item in items if item["problem_id"] == problem_id]
-    if only_with_source:
-        items = [item for item in items if item["has_source"]]
-    items.sort(key=lambda item: (item["submitted_at"], item["submission_id"]), reverse=sort == "desc")
     scope = json.dumps({
         "actor_id": actor_id, "profile_id": profile_id, **_date_scope(from_at, to_at),
         "result": result, "exclude_result": exclude_result,
         "only_with_source": only_with_source, "problem_id": problem_id,
         "sort": sort, "limit": limit,
     }, sort_keys=True, separators=(",", ":"))
-    snapshot = fingerprint(items)
+    total, marker = _student_submission_snapshot(
+        db, profile_id, from_at=from_at, to_at=to_at, result=result,
+        exclude_result=exclude_result, problem_id=problem_id,
+        only_with_source=only_with_source,
+    )
+    snapshot = fingerprint([marker])
     offset = cursor_offset(cursor, "student_submissions", scope, snapshot)
-    return page_result(items[offset:offset + limit], len(items), offset, limit,
+    rows = submission_rows(
+        db, profile_id=profile_id, from_at=from_at, to_at=to_at,
+        offset=offset, limit=limit, student_order=sort, result=result,
+        exclude_result=exclude_result, problem_id=problem_id,
+        only_with_source=only_with_source,
+    )
+    items = [submission_item(row) for row in rows]
+    return page_result(items, total, offset, limit,
                        "student_submissions", scope, snapshot)
 
 

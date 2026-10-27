@@ -86,6 +86,7 @@ class SourceStudent(BaseModel):
     name: str | None = None
     username: str | None = None
     points: float = 0
+    rank: int | None = None
     problem_count: int = 0
     display_rank: str = "user"
     updated_at: datetime | None = None
@@ -446,12 +447,14 @@ class SourceGateway(Protocol):
                            virtual_active_class_ids: list[int], starred_class_ids: list[int]) -> SourcePage[SourceClass]: ...
     async def get_class(self, class_id: int, *, actor_profile_id: int) -> SourceClass: ...
     async def list_students(self, profile_id: int, *, actor_profile_id: int, q: str | None,
-                            cursor: str | None, limit: int) -> SourcePage[SourceStudent]: ...
+                            cursor: str | None, limit: int, sort: str = "name") -> SourcePage[SourceStudent]: ...
     async def list_class_students(self, class_id: int, *, actor_profile_id: int,
                                   cursor: str | None, limit: int) -> SourcePage[SourceStudent]: ...
     async def get_student(self, profile_id: int, *, actor_profile_id: int) -> SourceStudent: ...
     async def list_teacher_contests(self, profile_id: int, *, actor_profile_id: int, state: str,
-                                    at: datetime | None, cursor: str | None, limit: int) -> SourceContestPage: ...
+                                    at: datetime | None, cursor: str | None, limit: int,
+                                    q: str | None = None) -> SourceContestPage: ...
+    async def get_teacher_contest(self, profile_id: int, contest_id: int, *, actor_profile_id: int) -> SourceContest: ...
     async def list_class_contests(self, class_id: int, *, actor_profile_id: int, state: str,
                                   at: datetime | None, cursor: str | None, limit: int) -> SourceContestPage: ...
     async def list_student_submissions(self, profile_id: int, *, actor_profile_id: int,
@@ -625,9 +628,10 @@ class HttpSourceGateway:
         return _validate_source_response(SourceClass, raw)
 
     async def list_students(self, profile_id: int, *, actor_profile_id: int, q: str | None = None,
-                            cursor: str | None = None, limit: int = 24) -> SourcePage[SourceStudent]:
+                            cursor: str | None = None, limit: int = 24,
+                            sort: str = "name") -> SourcePage[SourceStudent]:
         raw = await self._request("GET", f"teachers/{profile_id}/students", actor_profile_id=actor_profile_id,
-                                  params={"q": q or None, "cursor": cursor, "limit": limit})
+                                  params={"q": q or None, "cursor": cursor, "limit": limit, "sort": sort})
         return _validate_source_response(SourcePage[SourceStudent], raw)
 
     async def list_class_students(self, class_id: int, *, actor_profile_id: int,
@@ -642,11 +646,17 @@ class HttpSourceGateway:
 
     async def list_teacher_contests(self, profile_id: int, *, actor_profile_id: int, state: str = "all",
                                     at: datetime | None = None, cursor: str | None = None,
-                                    limit: int = 24) -> SourceContestPage:
-        params = {"state": state, "at": at, "cursor": cursor, "limit": limit}
+                                    limit: int = 24, q: str | None = None) -> SourceContestPage:
+        params = {"state": state, "at": at, "cursor": cursor, "limit": limit,
+                  "q": q or None}
         raw = await self._request("GET", f"teachers/{profile_id}/contests", actor_profile_id=actor_profile_id,
                                   params={key: value for key, value in params.items() if value is not None})
         return _validate_source_response(SourceContestPage, raw)
+
+    async def get_teacher_contest(self, profile_id: int, contest_id: int, *, actor_profile_id: int) -> SourceContest:
+        raw = await self._request("GET", f"teachers/{profile_id}/contests/{contest_id}",
+                                  actor_profile_id=actor_profile_id)
+        return _validate_source_response(SourceContest, raw)
 
     async def list_class_contests(self, class_id: int, *, actor_profile_id: int, state: str = "all",
                                   at: datetime | None = None, cursor: str | None = None,

@@ -1,6 +1,5 @@
 import React from 'react';
 import { TimeRange } from '../types';
-import { Calendar } from 'lucide-react';
 
 interface TimeRangeFilterProps {
   value: TimeRange;
@@ -25,10 +24,6 @@ export const TimeRangeFilter: React.FC<TimeRangeFilterProps> = ({
 }) => {
   return (
     <div className={`inline-flex flex-wrap max-w-full items-center gap-1.5 p-1 bg-card-subtle/80 border border-border/80 rounded-lg ${className}`}>
-      <div className="hidden sm:flex items-center gap-1 pl-1.5 pr-1 text-text-tertiary">
-        <Calendar className="w-3.5 h-3.5" />
-        <span className="text-[11px] font-medium hidden sm:inline">Mốc:</span>
-      </div>
       <div className="flex flex-wrap items-center gap-1" role="group" aria-label="Chọn mốc thời gian đánh giá">
         {OPTIONS.map((opt) => {
           const isActive = value === opt.key;

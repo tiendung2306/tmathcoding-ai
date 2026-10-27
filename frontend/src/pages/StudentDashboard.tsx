@@ -2,17 +2,16 @@ import React from 'react';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { Link, useSearchParams } from 'react-router-dom';
 import { queryClient } from '../lib/queryClient';
-import { fetchAICommentary, fetchFailedSubmissions, fetchSkillTree, fetchTagAnalytics } from '../services/api';
+import { fetchAICommentary, fetchSkillTree, fetchTagAnalytics } from '../services/api';
 import { TimeRange } from '../types';
 import { BloomRadar } from '../components/BloomRadar';
 import { SkillForest } from '../components/SkillForest';
 import { SkillTree } from '../components/SkillTree';
-import { FailedSubmissionsList } from '../components/FailedSubmissionsList';
 import { AIAdvisorCard } from '../components/AIAdvisorCard';
 import { TimeRangeFilter } from '../components/TimeRangeFilter';
 import { ErrorPanel } from '../components/ErrorPanel';
+import { StudentSubmissionHistory } from '../components/StudentSubmissionHistory';
 import { Card, CardContent } from '../components/ui/card';
-import { Badge } from '../components/ui/badge';
 import { Skeleton } from '../components/ui/skeleton';
 import { ChevronLeft } from 'lucide-react';
 
@@ -27,12 +26,12 @@ interface StudentDashboardProps {
 export const StudentDashboard: React.FC<StudentDashboardProps> = ({ studentId, studentName, avatarUrl, backTo, className }) => {
   const [params, setParams] = useSearchParams();
   const rangeValue = params.get('range') as TimeRange;
-  const timeRange: TimeRange = ['1d', '7d', '30d', '1y', 'all'].includes(rangeValue) ? rangeValue : 'all';
+  const timeRange: TimeRange = ['1d', '7d', '30d', '1y', 'all'].includes(rangeValue) ? rangeValue : '7d';
   const activeTab = params.get('tab') === 'submissions' ? 'submissions' : 'overview';
-  const skill = useQuery({ queryKey: ['student', studentId, 'skill', timeRange], queryFn: () => fetchSkillTree(studentId, timeRange) });
-  const tags = useQuery({ queryKey: ['student', studentId, 'tags', timeRange], queryFn: () => fetchTagAnalytics(studentId, timeRange) });
-  const failed = useQuery({ queryKey: ['student', studentId, 'failed'], queryFn: () => fetchFailedSubmissions(studentId) });
-  const ai = useQuery({ queryKey: ['student', studentId, 'ai', timeRange], queryFn: () => fetchAICommentary(studentId, timeRange), staleTime: 5 * 60_000 });
+  const isOverview = activeTab === 'overview';
+  const skill = useQuery({ queryKey: ['student', studentId, 'skill', timeRange], queryFn: () => fetchSkillTree(studentId, timeRange), enabled: isOverview });
+  const tags = useQuery({ queryKey: ['student', studentId, 'tags', timeRange], queryFn: () => fetchTagAnalytics(studentId, timeRange), enabled: isOverview });
+  const ai = useQuery({ queryKey: ['student', studentId, 'ai', timeRange], queryFn: () => fetchAICommentary(studentId, timeRange), staleTime: 5 * 60_000, enabled: isOverview });
   const generateAI = useMutation({
     mutationFn: (range: TimeRange) => fetchAICommentary(studentId, range, true),
     onSuccess: (result, range) => queryClient.setQueryData(['student', studentId, 'ai', range], result),
@@ -49,7 +48,7 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({ studentId, s
 
   const handleTimeRangeChange = (newRange: TimeRange) => {
     updateParams(next => {
-      if (newRange === 'all') next.delete('range'); else next.set('range', newRange);
+      if (newRange === '7d') next.delete('range'); else next.set('range', newRange);
     });
   };
 
@@ -64,11 +63,11 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({ studentId, s
         <div className="flex min-w-0 items-center gap-3">
           <StudentAvatar avatarUrl={avatarUrl} name={studentName} />
           <h1 className="truncate text-xl font-bold text-text-primary tracking-tight">{studentName}</h1>
-          <Badge variant="outline" className="text-[10px] font-mono">#{studentId}</Badge>
+          {activeTab === 'submissions' && <span className="shrink-0 text-[11px] font-semibold tracking-[0.14em] text-text-secondary">LỊCH SỬ BÀI NỘP</span>}
         </div>
-        <TimeRangeFilter value={timeRange} onChange={handleTimeRangeChange} />
+        {isOverview && <TimeRangeFilter value={timeRange} onChange={handleTimeRangeChange} />}
         </div>
-        <div className="mt-4 grid gap-4 border-t border-border pt-4 lg:grid-cols-[minmax(0,1fr)_15rem] lg:items-start">
+        {isOverview && <div className="mt-4 grid gap-4 border-t border-border pt-4 lg:grid-cols-[minmax(0,1fr)_15rem] lg:items-start">
           <AIAdvisorCard
             data={ai.data ?? null}
             loading={ai.isPending}
@@ -82,10 +81,10 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({ studentId, s
               <Statistic label="Lượt nộp" value={summary.total_submissions_period ?? summary.total_submissions_7d} />
             </> : null}
           </div>
-        </div>
+        </div>}
       </CardContent>
     </Card>
-    {tags.isError && <ErrorPanel title="Không tải được thống kê" message="Hãy thử tải lại phần dữ liệu này." onRetry={() => { void tags.refetch({ cancelRefetch: false }); }} />}
+    {isOverview && tags.isError && <ErrorPanel title="Không tải được thống kê" message="Hãy thử tải lại phần dữ liệu này." onRetry={() => { void tags.refetch({ cancelRefetch: false }); }} />}
 
     {activeTab === 'overview' ? <div role="tabpanel" className="space-y-4">
       {skill.isPending && <SectionLoading label="Đang tải năng lực và cây kỹ năng..." />}
@@ -94,9 +93,7 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({ studentId, s
         <div id="section-overview"><BloomRadar data={skill.data.bloom_radar} /></div>
         <div id="section-skill-tree">{skill.data.skill_forest ? <SkillForest roots={skill.data.skill_forest} userId={studentId} timeRange={timeRange} /> : <SkillTree nodes={skill.data.skill_tree_nodes} />}</div>
       </>}
-    </div> : <div role="tabpanel" id="section-failed-submissions">
-      {failed.isError ? <ErrorPanel title="Không tải được bài nộp chưa đạt" message="Hãy thử tải lại phần dữ liệu này." onRetry={() => { void failed.refetch({ cancelRefetch: false }); }} /> : <FailedSubmissionsList submissions={failed.data ?? []} loading={failed.isPending} />}
-    </div>}
+    </div> : <div role="tabpanel" id="section-student-submissions"><StudentSubmissionHistory studentId={studentId} /></div>}
 
   </div>;
 };

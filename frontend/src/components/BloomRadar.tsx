@@ -10,20 +10,11 @@ import {
 } from 'recharts';
 import { BloomRadarData, PillarBreakdownItem } from '../types';
 import { Card, CardHeader, CardTitle, CardContent } from './ui/card';
-import { Badge } from './ui/badge';
 import { Compass } from 'lucide-react';
 
 interface BloomRadarProps {
   data: BloomRadarData;
 }
-
-const RANGE_LABELS: Record<string, string> = {
-  '1d': '1 ngày qua',
-  '7d': '1 tuần qua',
-  '30d': '1 tháng qua',
-  '1y': '1 năm qua',
-  'all': 'Cả quá trình',
-};
 
 const PILLAR_CONFIG = [
   { key: 'quy_hoach_dong', subject: 'Quy hoạch động', fullSubject: 'Quy hoạch động (DP)' },
@@ -37,11 +28,6 @@ const PILLAR_CONFIG = [
 ];
 
 export const BloomRadar: React.FC<BloomRadarProps> = ({ data }) => {
-  const timeRangeLabel =
-    data.time_range && data.time_range !== 'all'
-      ? RANGE_LABELS[data.time_range] || data.time_range
-      : null;
-
   if (data.axes) {
     if (data.axes.length === 0) {
       return (
@@ -52,15 +38,10 @@ export const BloomRadar: React.FC<BloomRadarProps> = ({ data }) => {
                 <Compass className="w-3.5 h-3.5" />
               </div>
               <div>
-                <CardTitle className="text-sm font-semibold">Bản đồ Năng lực Kỹ năng</CardTitle>
+                <CardTitle className="text-base font-semibold">Bản đồ năng lực kỹ năng</CardTitle>
                 <p className="text-[11px] text-text-tertiary">Trực quan hóa tỷ lệ hoàn thành theo các nhóm kỹ năng cấu hình</p>
               </div>
             </div>
-            {timeRangeLabel && (
-              <Badge variant="outline" className="text-[10px] font-sans font-medium text-brand-primary border-brand-primary/30 bg-brand-primary/5">
-                {timeRangeLabel}
-              </Badge>
-            )}
           </CardHeader>
           <CardContent className="pt-2 pb-4 flex-1 flex items-center justify-center min-h-[280px]">
             <p className="text-sm text-text-secondary">Chưa có nhóm kỹ năng chứa bài toán.</p>
@@ -78,15 +59,10 @@ export const BloomRadar: React.FC<BloomRadarProps> = ({ data }) => {
                 <Compass className="w-3.5 h-3.5" />
               </div>
               <div>
-                <CardTitle className="text-sm font-semibold">Bản đồ Năng lực Kỹ năng</CardTitle>
+                <CardTitle className="text-base font-semibold">Bản đồ năng lực kỹ năng</CardTitle>
                 <p className="text-[11px] text-text-tertiary">Tỷ lệ bài đã giải theo từng nhóm kỹ năng</p>
               </div>
             </div>
-            {timeRangeLabel && (
-              <Badge variant="outline" className="text-[10px] font-sans font-medium text-brand-primary border-brand-primary/30 bg-brand-primary/5">
-                {timeRangeLabel}
-              </Badge>
-            )}
           </CardHeader>
           <CardContent className="pt-2 pb-4 flex-1">
             <dl className="divide-y divide-border">
@@ -130,17 +106,9 @@ export const BloomRadar: React.FC<BloomRadarProps> = ({ data }) => {
               <Compass className="w-3.5 h-3.5" />
             </div>
             <div>
-              <CardTitle className="text-sm font-semibold">Bản đồ Năng lực Kỹ năng</CardTitle>
-              <p className="text-[11px] text-text-tertiary">
-                Tỷ lệ bài đã giải (AC) theo từng nhóm kỹ năng. Di chuột để xem chi tiết số bài.
-              </p>
+              <CardTitle className="text-base font-semibold">Bản đồ năng lực kỹ năng</CardTitle>
             </div>
           </div>
-          {timeRangeLabel && (
-            <Badge variant="outline" className="text-[10px] font-sans font-medium text-brand-primary border-brand-primary/30 bg-brand-primary/5">
-              {timeRangeLabel}
-            </Badge>
-          )}
         </CardHeader>
 
         <CardContent className="pt-2 pb-4 flex-1 flex flex-col items-center justify-center">
@@ -252,11 +220,6 @@ export const BloomRadar: React.FC<BloomRadarProps> = ({ data }) => {
             </p>
           </div>
         </div>
-        {timeRangeLabel && (
-          <Badge variant="outline" className="text-[10px] font-sans font-medium text-brand-primary border-brand-primary/30 bg-brand-primary/5">
-            {timeRangeLabel}
-          </Badge>
-        )}
       </CardHeader>
 
       <CardContent className="pt-2 pb-4 flex-1 flex flex-col items-center justify-center">

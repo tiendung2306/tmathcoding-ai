@@ -24,6 +24,13 @@ the full ordered result set and returns `409` if a cursor is reused for another
 query or the result set changed. The source queries do not share a database
 snapshot transaction, so this does not guarantee snapshot isolation during writes.
 
+`GET /teachers/{profile_id}/students` accepts `sort=points_desc` for the dashboard
+leaderboard. It returns only the requested cursor page, ordered by points descending
+and profile ID ascending. Each item includes `rank`, calculated over all students
+visible to the actor before applying the optional name, username, or profile-ID
+search. Providers serving this route must preserve the same ordering and global
+rank semantics so the dashboard can paginate without downloading the full roster.
+
 For local fixture Compose only, the actor/scope lists accept `*` to cover
 fixture users without maintaining a list as students log in. The service token
 is still mandatory and every requested resource is checked against source ACLs;
@@ -37,19 +44,22 @@ provider must authenticate the actor through its registered server-to-server
 authorization or another trusted mapping, as described in the API contract.
 
 Contest routes read `judge_contest` and its organization, author, and curator
-mappings. A teacher can see contests attached to managed classes when
-`is_visible=1`, plus contests they authored or curate. Super admins can see all
-contests. Hidden contests are visible to their author/curator and super admins.
+mappings. The teacher dashboard contest listing and detail routes return all
+contests to authenticated callers, regardless of class, author, or visibility
+settings. Returned `class_ids` still include only classes in the caller's managed
+scope. The class-specific contest route retains its class access checks.
 The mock does not interpret `is_private` or `is_organization_private`; their
-production visibility semantics must be confirmed by the provider. Its current
-visibility assumption is `is_visible` plus actor/class mapping as described
-above.
+production visibility semantics must be confirmed by the provider.
 `class_ids` only includes classes in the caller's accessible scope. Active state
-uses `start_time <= at < end_time`; the source schema has no pause/cancel state,
-so those rules are not inferred. Class sorting puts classes with a visible active
-contest first. `updated_at` is null; `version` carries `version_update`.
-`avatar_url` and `joined_at` are null because the current fixture schema does not
-expose them.
+uses `start_time <= at < end_time`; contest results sort by start time descending
+before cursor pagination so the most recently started contests appear first. The
+source schema has no pause/cancel state, so those rules are not inferred.
+The teacher contest listing also accepts `q` (title, key, or contest ID). The
+filter is applied before cursor pagination and included in the cursor scope.
+`updated_at` is null; `version` carries `version_update`.
+`avatar_url` is a Gravatar URL derived from the account email; the email itself
+is not returned. `joined_at` is null because the current fixture schema does not
+expose it.
 
 Submission routes read `judge_submission`, `judge_problem`, `judge_language`,
 `judge_submissionsource`, `judge_submissiontestcase`, and the class membership

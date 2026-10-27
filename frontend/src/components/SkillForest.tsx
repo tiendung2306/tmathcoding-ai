@@ -54,8 +54,7 @@ export function SkillForest({ roots, userId, timeRange = 'all' }: {roots: SkillF
     if (id !== rootId) requestAnimationFrame(() => detailRef.current?.scrollIntoView({block: 'nearest'}));
   }
   return <section className="space-y-4" aria-label="Cây kỹ năng">
-    <div className="forest-heading"><h2 className="text-lg font-semibold">Cây kỹ năng</h2><span className="text-xs text-text-secondary">{timeRange === 'all' ? 'Kết quả toàn bộ lịch sử' : 'Kết quả trong khoảng đã chọn'}</span></div>
-    <p className="text-sm text-text-secondary">Chọn nhóm để xem dạng bài và bài toán. Số bài AC đếm theo bài riêng biệt.</p>
+    <div className="forest-heading"><h2 className="text-lg font-semibold">Cây kỹ năng</h2></div>
     {roots.length === 0 ? <p className="skill-panel p-6 text-sm text-text-secondary">Chưa có nhóm kỹ năng chứa bài toán.</p> : <div className="forest-roots">{roots.map((item, index) => <button key={item.id} ref={element => {if (element) rootButtons.current.set(item.id, element); else rootButtons.current.delete(item.id);}} aria-expanded={rootId === item.id} aria-controls="forest-detail" className={`forest-root-choice ${rootId === item.id ? 'forest-root-selected' : ''}`} onClick={() => choose(item.id)}>
       <span className="forest-root-number" aria-hidden="true">{item.id === 'other' ? '+' : String(index + 1).padStart(2, '0')}</span>
       <span className="min-w-0 flex-1"><span className="block text-sm font-medium">{item.id === 'other' ? 'Khác / chưa phân loại' : item.title}</span><span className="block text-xs text-text-secondary mt-1">{item.children.length} dạng · {item.problem_count} bài</span></span>

@@ -22,7 +22,7 @@ export function LoginPage() {
       await login(username, password);
       const next = params.get('next');
       const target = next?.startsWith('/') && !next.startsWith('//') ? new URL(next, window.location.origin) : null;
-      const safeNext = target?.origin === window.location.origin ? `${target.pathname}${target.search}${target.hash}` : '/student/students';
+      const safeNext = target?.origin === window.location.origin ? `${target.pathname}${target.search}${target.hash}` : '/teacher/home';
       window.location.assign(safeNext);
     } catch (cause) {
       setError(loginErrorMessage(cause));
@@ -39,7 +39,7 @@ export function LoginPage() {
       <Card className="shadow-xs" role="region" aria-labelledby="login-title">
         <CardHeader className="border-b-0 px-6 pb-0 pt-6">
           <h1 id="login-title" className="text-xl font-semibold tracking-tight">Đăng nhập</h1>
-          <CardDescription className="text-sm">Nhập tài khoản admin để xem danh sách lớp.</CardDescription>
+          <CardDescription className="text-sm">Đăng nhập bằng tài khoản của bạn để tiếp tục.</CardDescription>
         </CardHeader>
         <CardContent className="px-6 pb-6 pt-6">
           <form onSubmit={submit} className="grid gap-4">

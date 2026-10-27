@@ -1,3 +1,4 @@
+from datetime import datetime
 from pydantic import BaseModel
 from typing import List, Dict, Optional, Any
 
@@ -51,6 +52,28 @@ class StudentRecentSubmission(BaseModel):
     problem_id: int
     problem_code: str
     problem_name: str
+
+class StudentSubmissionHistoryItem(BaseModel):
+    submission_id: int
+    problem_id: int
+    problem_code: str
+    problem_name: str
+    language: Optional[str] = None
+    result: Optional[str] = None
+    status: Optional[str] = None
+    date: str
+    points: Optional[float] = None
+    time: Optional[float] = None
+    memory: Optional[float] = None
+    has_source: bool = False
+
+class StudentSubmissionHistoryPage(BaseModel):
+    items: List[StudentSubmissionHistoryItem]
+    next_cursor: Optional[str] = None
+    has_more: bool = False
+    total: int
+    page_size: int
+    as_of: datetime
 
 class FailedSubmissionItem(BaseModel):
     submission_id: int

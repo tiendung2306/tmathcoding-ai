@@ -1,3 +1,4 @@
+from datetime import datetime, timedelta, timezone
 from typing import List
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -5,6 +6,8 @@ from app.core.auth import get_current_user
 from app.schemas.student import (
     SkillTreeResponse,
     StudentRecentSubmission,
+    StudentSubmissionHistoryItem,
+    StudentSubmissionHistoryPage,
     FailedSubmissionItem,
     SubmissionDetailResponse,
 )
@@ -152,3 +155,45 @@ async def get_student_recent_submissions(
         )
         for item in page.items
     ]
+
+
+@router.get("/submissions/history", response_model=StudentSubmissionHistoryPage)
+async def get_student_submission_history(
+    user_id: int = Query(..., gt=0, description="ID của học sinh cần xem lịch sử bài nộp"),
+    cursor: str | None = Query(None),
+    result: str | None = Query(None, min_length=1, max_length=16),
+    period: str = Query("all", pattern="^(1d|7d|30d|1y|all)$"),
+    page_size: int = Query(24, ge=1, le=100),
+    source: SourceGateway = Depends(get_source_gateway),
+    actor=Depends(get_current_user),
+):
+    """Lịch sử bài nộp có lọc và phân trang theo cursor của Source API."""
+    date_to = datetime.now(timezone.utc) if period != "all" else None
+    days = {"1d": 1, "7d": 7, "30d": 30, "1y": 365}.get(period)
+    date_from = date_to - timedelta(days=days) if date_to and days else None
+    page = await source.list_student_submissions(
+        user_id, actor_profile_id=actor.profile_id, date_from=date_from, date_to=date_to,
+        result=result, cursor=cursor, limit=page_size, sort="desc",
+    )
+    return StudentSubmissionHistoryPage(
+        items=[StudentSubmissionHistoryItem(
+            submission_id=item.submission_id,
+            problem_id=item.problem_id,
+            problem_code=item.problem_code or "",
+            problem_name=item.problem_title or f"Bài toán #{item.problem_id}",
+            language=(item.language.common_name or item.language.name or item.language.key)
+            if item.language else None,
+            result=item.result,
+            status=item.status,
+            date=item.submitted_at.isoformat(),
+            points=item.points,
+            time=item.time,
+            memory=item.memory,
+            has_source=item.has_source,
+        ) for item in page.items],
+        next_cursor=page.next_cursor,
+        has_more=page.has_more,
+        total=page.total,
+        page_size=page_size,
+        as_of=page.as_of,
+    )

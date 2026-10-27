@@ -8,16 +8,16 @@ import {
   AICommentaryResponseData,
   StudentDetailResponseData,
   ClassStudentItemData,
-  StudentRecentSubmissionData,
+  StudentSubmissionHistoryPageData,
   AutoTagStatusResponseData,
   AutoTagBatchRunResponseData,
-  FailedSubmissionItem,
   SubmissionDetailResponseData,
   JobCreateResponseData,
   JobStatusResponseData,
-  ClassListQuery,
-  ClassPageData,
-  ClassStarData
+  TeacherContestPageData,
+  TeacherContestData,
+  ContestLiveSubmissionsData,
+  ContestOrganizationData,
 } from '../types';
 
 const API_BASE_URL = '/api/v1';
@@ -72,30 +72,39 @@ export const fetchJobStatus = async (jobId: string): Promise<JobStatusResponseDa
   return res.data;
 };
 
-export const fetchFailedSubmissions = async (userId: number): Promise<FailedSubmissionItem[]> => {
-  const res = await apiClient.get(`${API_BASE_URL}/student/submissions/failed`, {
-    params: { user_id: userId }, timeout: 30_000,
-  });
-  return res.data;
-};
-
 export const fetchSubmissionDetail = async (submissionId: number): Promise<SubmissionDetailResponseData> => {
   const res = await apiClient.get(`${API_BASE_URL}/student/submissions/${submissionId}/detail`);
   return res.data;
 };
 
-export const fetchTeacherClasses = async (params: ClassListQuery, signal?: AbortSignal): Promise<ClassPageData> => {
-  const res = await apiClient.get<ClassPageData>(`${API_BASE_URL}/teacher/my-classes`, { params, signal });
-  return res.data;
-};
+export async function fetchTeacherContests(params: {
+  state: 'active' | 'ended';
+  q?: string;
+  cursor?: string | null;
+  limit?: number;
+}, signal?: AbortSignal): Promise<TeacherContestPageData> {
+  return (await apiClient.get<TeacherContestPageData>(`${API_BASE_URL}/teacher/my-contests`, {
+    params, signal, timeout: 30_000,
+  })).data;
+}
 
-export const setClassStar = async (orgId: number, starred: boolean): Promise<ClassStarData> => {
-  const url = `${API_BASE_URL}/teacher/classes/${orgId}/star`;
-  const response = starred
-    ? await apiClient.put<ClassStarData>(url)
-    : await apiClient.delete<ClassStarData>(url);
-  return response.data;
-};
+export async function fetchTeacherContest(contestId: number, signal?: AbortSignal): Promise<TeacherContestData> {
+  return (await apiClient.get<TeacherContestData>(`${API_BASE_URL}/teacher/my-contests/${contestId}`, {
+    signal, timeout: 30_000,
+  })).data;
+}
+
+export async function fetchContestLiveSubmissions(contestId: number, signal?: AbortSignal): Promise<ContestLiveSubmissionsData> {
+  return (await apiClient.get<ContestLiveSubmissionsData>(`${API_BASE_URL}/virtual-class/contests/${contestId}/live-submissions`, {
+    signal, timeout: 30_000,
+  })).data;
+}
+
+export async function fetchContestOrganizations(signal?: AbortSignal): Promise<ContestOrganizationData[]> {
+  return (await apiClient.get<ContestOrganizationData[]>(`${API_BASE_URL}/teacher/contest-organizations`, {
+    signal, timeout: 30_000,
+  })).data;
+}
 
 export const fetchClassHeatmap = async (orgId: number, timeRange: TimeRange = 'all'): Promise<ClassHeatmapResponseData> => {
   const res = await apiClient.get(`${API_BASE_URL}/teacher/class/${orgId}/heatmap`, {
@@ -121,9 +130,13 @@ export const fetchClassStudents = async (orgId: number): Promise<ClassStudentIte
   return res.data;
 };
 
-export const fetchRecentSubmissions = async (userId: number, onlyFailed: boolean = false, limit: number = 10): Promise<StudentRecentSubmissionData[]> => {
-  const res = await apiClient.get(`${API_BASE_URL}/student/submissions/recent`, {
-    params: { user_id: userId, only_failed: onlyFailed, limit }
+export const fetchStudentSubmissionHistory = async (
+  userId: number,
+  cursor: string | null,
+): Promise<StudentSubmissionHistoryPageData> => {
+  const res = await apiClient.get<StudentSubmissionHistoryPageData>(`${API_BASE_URL}/student/submissions/history`, {
+    params: { user_id: userId, cursor: cursor || undefined, page_size: 24 },
+    timeout: 30_000,
   });
   return res.data;
 };
@@ -144,13 +157,6 @@ export const runAutoTagBatch = async (batchSize: number = 10): Promise<AutoTagBa
 // Virtual Class API
 export const getVirtualClassSessions = async (orgId: number) => {
   const res = await apiClient.get(`${API_BASE_URL}/virtual-class/${orgId}/sessions`);
-  return res.data;
-};
-
-export const startVirtualClass = async (orgId: number, name?: string) => {
-  const res = await apiClient.post(`${API_BASE_URL}/virtual-class/${orgId}/start`, null, {
-    params: { name }
-  });
   return res.data;
 };
 

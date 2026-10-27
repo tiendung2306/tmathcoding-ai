@@ -2,20 +2,18 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import { Card } from './ui/card';
 import { Badge } from './ui/badge';
-import { Play, Calendar, Clock, ArrowRight, Radio } from 'lucide-react';
-import { getVirtualClassSessions, startVirtualClass } from '../services/api';
+import { Calendar, Clock, ArrowRight, Radio } from 'lucide-react';
+import { getVirtualClassSessions } from '../services/api';
 
 interface VirtualClassSessionsProps {
   selectedOrgId?: number;
   className?: string;
-  onEnterSession: (sessionId: number, sessionName: string, isActive: boolean) => void;
   sessionHref: (sessionId: number) => string;
 }
 
 export const VirtualClassSessions: React.FC<VirtualClassSessionsProps> = ({
   selectedOrgId,
   className,
-  onEnterSession,
   sessionHref,
 }) => {
   const [sessions, setSessions] = useState<any[]>([]);
@@ -48,19 +46,6 @@ export const VirtualClassSessions: React.FC<VirtualClassSessionsProps> = ({
     }
   };
 
-  const handleCreateSession = async () => {
-    if (!selectedOrgId) return;
-    setLoading(true);
-    setError(null);
-    try {
-      const newSession = await startVirtualClass(selectedOrgId);
-      onEnterSession(newSession.id, newSession.name, true);
-    } catch (err: any) {
-      setError(err.response?.data?.detail || "Lỗi khi tạo phiên học ảo. Vui lòng thử lại.");
-      setLoading(false);
-    }
-  };
-
   if (!selectedOrgId) {
     return (
       <div className="p-6 text-center text-text-secondary">
@@ -73,7 +58,7 @@ export const VirtualClassSessions: React.FC<VirtualClassSessionsProps> = ({
 
   return (
     <div className="p-4 sm:p-6 lg:p-8 max-w-5xl mx-auto space-y-6">
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+      <div>
         <div>
           <h1 className="text-xl font-bold text-text-primary flex items-center gap-2">
             <Radio className="w-5 h-5 text-brand-primary" />
@@ -82,25 +67,6 @@ export const VirtualClassSessions: React.FC<VirtualClassSessionsProps> = ({
           <p className="text-sm text-text-secondary mt-1">
             Chọn một phiên học đang diễn ra để theo dõi, hoặc xem lại lịch sử các phiên trước đó.
           </p>
-        </div>
-        <div>
-          <button
-            onClick={handleCreateSession}
-            disabled={loading || activeSession !== null}
-            className={`min-h-11 flex items-center gap-2 px-4 py-2 rounded-md font-medium transition-colors ${
-              activeSession !== null 
-                ? 'bg-card-subtle text-text-disabled cursor-not-allowed border border-border'
-                : 'bg-brand-primary text-white hover:bg-brand-primary/90 shadow-sm'
-            }`}
-          >
-            <Play className="w-4 h-4" />
-            Bắt đầu phiên học mới
-          </button>
-          {activeSession && (
-            <p className="text-[11px] text-orange-500 mt-2 text-right font-medium">
-              *Đang có phiên học diễn ra
-            </p>
-          )}
         </div>
       </div>
 

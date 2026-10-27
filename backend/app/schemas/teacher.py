@@ -1,36 +1,10 @@
-from pydantic import BaseModel, Field
-from typing import List, Literal, Optional
+from pydantic import BaseModel
+from typing import List, Optional
 from datetime import datetime
 
-ClassSortField = Literal["creation_date", "name", "member_count", "id"]
-SortOrder = Literal["asc", "desc"]
-
-class ClassManager(BaseModel):
+class ContestOrganization(BaseModel):
     id: int
     name: str
-
-
-class ClassSummary(BaseModel):
-    id: int
-    name: str
-    member_count: int = 0
-    school_year: Optional[str] = None
-    managers: List[ClassManager] = Field(default_factory=list)
-    creation_date: Optional[datetime] = None
-    is_active: bool = False
-    has_active_contest: bool = False
-    starred_at: Optional[datetime] = None
-
-class ClassStarResponse(BaseModel):
-    organization_id: int
-    starred_at: Optional[datetime] = None
-
-class ClassPage(BaseModel):
-    items: List[ClassSummary]
-    total: int
-    page: int
-    page_size: int
-    total_pages: int
 
 class StudentSearchItem(BaseModel):
     user_id: int
@@ -38,6 +12,8 @@ class StudentSearchItem(BaseModel):
     username: str
     points: float
     problem_count: int
+    avatar_url: Optional[str] = None
+    rank: Optional[int] = None
 
 class StudentPage(BaseModel):
     items: List[StudentSearchItem]
