@@ -529,6 +529,23 @@ class HttpSourceGateway:
         if self._owns_client:
             await self._client.aclose()
 
+    async def scoring_snapshot(self, *, actor_profile_id: int) -> dict:
+        # Snapshot creation is not retried: a timeout must not create several exports.
+        response = await self._client.post("scoring/snapshots", headers={
+            "Authorization": f"Bearer {self._token}", "X-Actor-Profile-Id": str(actor_profile_id)},
+            timeout=600)
+        if response.status_code in (401, 403, 409, 429):
+            raise HTTPException(response.status_code, "Source API từ chối tạo snapshot điểm.")
+        if response.status_code == 404:
+            raise HTTPException(502, "Source API chưa hỗ trợ snapshot điểm. Hãy cập nhật provider/mock.")
+        response.raise_for_status()
+        return response.json()
+
+    async def scoring_snapshot_page(self, snapshot_id: str, section: str, page: int,
+                                    *, actor_profile_id: int) -> dict:
+        return await self._request("GET", f"scoring/snapshots/{snapshot_id}/{section}",
+            actor_profile_id=actor_profile_id, params={"page": page})
+
     def _retry_after_seconds(self, value: str | None) -> float | None:
         if not value:
             return None

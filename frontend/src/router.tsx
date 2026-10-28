@@ -145,6 +145,7 @@ export const router = createBrowserRouter([
       handle: { title: data => data?.name || 'Phiên học' } satisfies PageHandle },
     { path: '/admin', element: <Suspense fallback={pageLoading}><AdminDashboard /></Suspense>, errorElement: <RouteError />, handle: { title: 'Quản trị gắn tag' } satisfies PageHandle },
     { path: '/admin/skills', element: <Suspense fallback={pageLoading}><SkillConfiguration /></Suspense>, errorElement: <RouteError />, handle: { title: 'Cấu hình cây kỹ năng' } satisfies PageHandle },
+    { path: '/admin/scoring', loader: () => redirect('/student/students') },
     { path: '*', loader: () => { throw new Response('Không tìm thấy trang.', { status: 404 }); }, errorElement: <RouteError /> },
   ] },
 ]);

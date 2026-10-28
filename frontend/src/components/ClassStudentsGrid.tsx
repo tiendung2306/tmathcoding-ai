@@ -350,7 +350,7 @@ export const ClassStudentsGrid: React.FC<ClassStudentsGridProps> = ({
                 {/* Score & Submissions */}
                 <div className="grid grid-cols-2 gap-1.5 text-xs">
                   <div className="bg-card-subtle/80 px-2 py-1 rounded border border-border/40">
-                    <span className="text-[10px] text-text-secondary block">Điểm số</span>
+                    <span className="text-[10px] text-text-secondary block">{st.score_metric === 'achievement' ? 'Điểm thành tích' : 'Điểm nguồn'}</span>
                     <span className="font-mono font-bold text-text-primary text-xs">
                       {st.points.toLocaleString('vi-VN')}
                     </span>

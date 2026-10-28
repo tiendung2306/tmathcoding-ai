@@ -14,6 +14,9 @@ class StudentSearchItem(BaseModel):
     problem_count: int
     avatar_url: Optional[str] = None
     rank: Optional[int] = None
+    unscored_count: int = 0
+    source_points: Optional[float] = None
+    score_metric: str = "source"
 
 class StudentPage(BaseModel):
     items: List[StudentSearchItem]
@@ -21,6 +24,9 @@ class StudentPage(BaseModel):
     page: int
     page_size: int
     total_pages: int
+    score_metric: str = "source"
+    score_run_id: Optional[str] = None
+    score_as_of: Optional[datetime] = None
 
 class ClassStudentItem(BaseModel):
     user_id: int
@@ -28,6 +34,9 @@ class ClassStudentItem(BaseModel):
     username: str
     avatar_url: Optional[str] = None
     points: float = 0.0
+    source_points: Optional[float] = None
+    score_metric: str = "source"
+    unscored_count: int = 0
     problem_count: int = 0
     display_rank: str = "user"
     alerts: List[str] = []
@@ -68,6 +77,9 @@ class StudentDetailResponse(BaseModel):
     username: str
     time_range: str = "all"
     points: float = 0.0
+    source_points: Optional[float] = None
+    score_metric: str = "source"
+    unscored_count: int = 0
     performance_points: float = 0.0
     problem_count: int = 0
     display_rank: str = "user"

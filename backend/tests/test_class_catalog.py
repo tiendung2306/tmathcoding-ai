@@ -11,6 +11,9 @@ from app.api.v1.endpoints.teacher import router
 from app.api.v1.endpoints.virtual_class import router as virtual_router
 from app.core.config import Settings
 from app.core.config_database import get_config_db
+from app.core.dashboard_database import get_dashboard_db
+from app.models.scoring import ScoringState
+from app.scoring.policy import default_policy
 from app.services.source_gateway import (
     SourceAccess, SourceClass, SourceManager, SourcePage, SourceSchoolYear,
     SourceStudent, SourceSubmission, SourceSubmissionPage, SourceSubmissionChange,
@@ -34,6 +37,9 @@ class AsyncTestSession:
 
     async def execute(self, statement):
         return self.session.execute(statement)
+
+    async def get(self, model, key):
+        return self.session.get(model, key)
 
     def get_bind(self):
         return self.session.get_bind()
@@ -191,6 +197,8 @@ class FakeSourceGateway:
 
 class TeacherOrganizationTests(unittest.IsolatedAsyncioTestCase):
     def setUp(self):
+        from app.services.class_student_service import _roster_cache
+        _roster_cache.clear()
         self.engine = create_engine("sqlite://")
         tables = [AuthUser, JudgeProfile, JudgeSchoolYear, JudgeOrganization, JudgeOrganizationAdmins,
                   JudgeProfileOrganizations]
@@ -199,8 +207,10 @@ class TeacherOrganizationTests(unittest.IsolatedAsyncioTestCase):
         self.session = Session(self.engine)
         self.db = AsyncTestSession(self.session)
         self.config_engine = create_engine("sqlite://")
+        ScoringState.__table__.create(self.config_engine)
         VirtualClassSession.__table__.create(self.config_engine)
         self.config_session = Session(self.config_engine)
+        self.config_session.add(ScoringState(id=1, revision=1, policy=default_policy().model_dump(mode="json")))
         self.config_db = AsyncTestSession(self.config_session)
         self.gateway = FakeSourceGateway(self.session)
         self.actor = SourceAccess(profile_id=2, exists=True, is_active=True, is_super_admin=True)
@@ -248,6 +258,7 @@ class TeacherOrganizationTests(unittest.IsolatedAsyncioTestCase):
             return self.actor
         app.dependency_overrides[get_source_gateway] = source_gateway
         app.dependency_overrides[get_current_user] = current_user
+        app.dependency_overrides[get_dashboard_db] = lambda: self.config_db
 
     async def test_student_list_is_distinct_and_respects_managed_classes(self):
         all_students = await get_student_page(self.gateway, 2, 1, 24, "")

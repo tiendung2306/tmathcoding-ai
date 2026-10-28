@@ -102,8 +102,14 @@ async def get_teacher_students(
     sort: str = Query("points_desc", pattern="^(points_desc|points_asc|name|name_desc)$"),
     source: SourceGateway = Depends(get_source_gateway),
     actor=Depends(get_current_user),
+    dashboard_db=Depends(get_dashboard_db),
 ):
     target = _target_profile_id(teacher_id, actor)
+    if actor.is_super_admin and target == actor.profile_id:
+        from app.scoring.service import leaderboard
+        scored = await leaderboard(dashboard_db, page, page_size, q, sort=sort)
+        if scored is not None:
+            return scored
     return await get_student_page(source, target, page, page_size, q, actor_profile_id=actor.profile_id, sort=sort)
 
 
@@ -113,11 +119,12 @@ async def search_students(
     teacher_id: int | None = Query(None, ge=1),
     source: SourceGateway = Depends(get_source_gateway),
     actor=Depends(get_current_user),
+    dashboard_db=Depends(get_dashboard_db),
 ):
     """Find students visible to the acting source profile."""
     target = _target_profile_id(teacher_id, actor)
     res = await source.list_students(target, actor_profile_id=actor.profile_id, q=q, limit=10)
-    return [
+    rows = [
         StudentSearchItem(
             user_id=p.profile_id,
             name=p.name or f"User {p.profile_id}",
@@ -127,6 +134,10 @@ async def search_students(
         )
         for p in res.items
     ]
+    if actor.is_super_admin:
+        from app.scoring.service import overlay_scores
+        return await overlay_scores(dashboard_db, rows)
+    return rows
 
 @router.get("/students/{student_id}")
 async def get_student_context(
@@ -160,9 +171,13 @@ async def get_student_detail(
     dashboard_db: AsyncSession = Depends(get_dashboard_db)
 ):
     """F2.2: Xem chi tiết học sinh: profile, lớp học, năng lực 8 chuyên đề thuật toán, cảnh báo, thống kê."""
-    return await heatmap_service.get_student_detail(
+    result = await heatmap_service.get_student_detail(
         student_id, source, time_range=time_range, dashboard_db=dashboard_db, actor_profile_id=actor.profile_id,
     )
+    if actor.is_super_admin:
+        from app.scoring.service import overlay_scores
+        return (await overlay_scores(dashboard_db, [result]))[0]
+    return result
 
 @router.get("/students/{student_id}/analytics/tags", response_model=StudentTagAnalyticsResponse)
 async def get_managed_student_tag_analytics(
@@ -181,10 +196,11 @@ async def get_class_students(
     org_id: int,
     source: SourceGateway = Depends(get_source_gateway),
     actor=Depends(get_current_user),
+    dashboard_db=Depends(get_dashboard_db),
 ):
     """Danh sách học sinh hiện thuộc lớp theo dữ liệu nguồn."""
     students = await load_class_students(source, org_id, actor.profile_id)
-    return [ClassStudentItem(
+    rows = [ClassStudentItem(
         user_id=item.profile_id,
         name=item.name or f"Học sinh #{item.profile_id}",
         username=item.username or f"user_{item.profile_id}",
@@ -193,3 +209,7 @@ async def get_class_students(
         problem_count=item.problem_count,
         display_rank=item.display_rank,
     ) for item in students]
+    if actor.is_super_admin:
+        from app.scoring.service import overlay_scores
+        return await overlay_scores(dashboard_db, rows)
+    return rows

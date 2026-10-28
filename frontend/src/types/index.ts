@@ -317,6 +317,8 @@ export interface ClassStudentItemData {
   username: string;
   avatar_url: string | null;
   points: number;
+  score_metric?: 'source' | 'achievement';
+  unscored_count?: number;
   problem_count: number;
   display_rank: string;
   alerts: string[];
@@ -354,6 +356,8 @@ export interface StudentDetailResponseData {
   username: string;
   time_range?: TimeRange;
   points: number;
+  score_metric?: 'source' | 'achievement';
+  unscored_count?: number;
   performance_points: number;
   problem_count: number;
   display_rank: string;

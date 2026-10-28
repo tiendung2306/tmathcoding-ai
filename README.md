@@ -1,5 +1,13 @@
 # tmath AI Diagnostic & Admin Dashboard Service
 
+## Điểm thành tích
+
+Điểm được hiển thị trong danh sách và hồ sơ học sinh, tính theo các bài AC riêng
+biệt. Khoảng điểm cố định trong code; bậc A–F chỉ lấy từ Source API, không có màn
+hình cấu hình điểm/gán bậc. Tác vụ chạy trong service `scoring-worker`; bảo trì
+bằng CLI. Migration dashboard thêm revision `20261027_0001`.
+Đọc [quy tắc tính điểm và hướng dẫn manual test](docs/SCORING.md).
+
 Hệ thống Microservice AI Phân Tích Học Lực, Trợ Lý AI Code Doctor, Auto-Tagging & Màn Hình Admin Dashboard cho Nền tảng tmath Online Judge (DMOJ).
 
 Dashboard đọc dữ liệu nguồn qua Source API và dùng `tmath_dashboard` cho dữ liệu

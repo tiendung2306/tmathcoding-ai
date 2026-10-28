@@ -145,6 +145,30 @@ class SourceAPITest(unittest.TestCase):
         self.assertEqual(self.client.get(path, headers=self.headers(actor="999")).status_code, 403)
         self.assertEqual(self.client.get(path, headers=self.headers(actor="2", token="wrong")).status_code, 401)
 
+    def test_scoring_snapshot_scope_deduplication_and_freeze(self):
+        from source_api_mock.scoring import _root
+        import shutil
+        for directory in _root.iterdir():
+            shutil.rmtree(directory)
+        path = "/integration/v1/scoring/snapshots"
+        self.assertEqual(self.client.post(path, headers=self.headers()).status_code, 403)
+        with self.engine.begin() as connection:
+            connection.execute(insert(submission), [{"id": 504, "date": datetime(2026, 6, 3),
+                "user_id": 3, "problem_id": 202, "result": "WA", "status": "D"}])
+        response = self.client.post(path, headers=self.headers(actor="9"))
+        self.assertEqual(response.status_code, 200, response.text)
+        manifest = response.json()
+        self.assertEqual(manifest["sections"]["pairs"]["count"], 2)
+        self.assertEqual(manifest["sections"]["profiles"]["count"], 6)
+        page_path = f"{path}/{manifest['snapshot_id']}/pairs"
+        page = self.client.get(page_path, headers=self.headers(actor="9")).json()
+        self.assertEqual([(r["profile_id"], r["problem_id"], r["has_ac"]) for r in page["items"]],
+                         [(3, 202, 1), (4, 201, 1)])
+        with self.engine.begin() as connection:
+            connection.execute(update(submission).where(submission.c.id == 502).values(result="WA"))
+        self.assertEqual(self.client.get(page_path, headers=self.headers(actor="9")).json(), page)
+        self.assertEqual(self.client.get(page_path, headers=self.headers()).status_code, 403)
+
     def test_local_wildcard_mapping_and_source_scopes_keep_resource_acl(self):
         os.environ["SOURCE_API_ALLOWED_ACTORS"] = "*"
         os.environ["SOURCE_API_SOURCE_ACTORS"] = "*"

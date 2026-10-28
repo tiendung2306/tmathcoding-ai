@@ -13,6 +13,7 @@ import { ErrorPanel } from '../components/ErrorPanel';
 import { StudentSubmissionHistory } from '../components/StudentSubmissionHistory';
 import { Card, CardContent } from '../components/ui/card';
 import { Skeleton } from '../components/ui/skeleton';
+import { StudentAchievement } from '../components/StudentAchievement';
 
 interface StudentDashboardProps {
   studentId: number;
@@ -81,6 +82,7 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({ studentId, s
     {isOverview && tags.isError && <ErrorPanel title="Không tải được thống kê" message="Hãy thử tải lại phần dữ liệu này." onRetry={() => { void tags.refetch({ cancelRefetch: false }); }} />}
 
     {activeTab === 'overview' ? <div role="tabpanel" className="space-y-4">
+      <StudentAchievement key={studentId} studentId={studentId} />
       {skill.isPending && <SectionLoading label="Đang tải năng lực và cây kỹ năng..." />}
       {skill.isError && <ErrorPanel title="Không tải được sơ đồ kỹ năng" message="Hãy thử tải lại phần dữ liệu này." onRetry={() => { void skill.refetch({ cancelRefetch: false }); }} />}
       {skill.data && <>

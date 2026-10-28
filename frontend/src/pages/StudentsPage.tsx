@@ -4,6 +4,7 @@ import type { FormEvent } from 'react';
 import { Search, Star } from 'lucide-react';
 import { getVisiblePageNumbers, PaginationBar } from '../components/PaginationBar';
 import type { AuthAccount } from '../services/auth';
+import { scoreDate } from '../services/scoring';
 
 interface StudentItem {
   user_id: number;
@@ -13,6 +14,7 @@ interface StudentItem {
   problem_count: number;
   avatar_url: string | null;
   rank: number | null;
+  unscored_count?: number;
 }
 
 export interface StudentPageData {
@@ -21,6 +23,8 @@ export interface StudentPageData {
   page: number;
   page_size: number;
   total_pages: number;
+  score_metric?: string;
+  score_as_of?: string;
 }
 
 export function StudentsPage() {
@@ -109,6 +113,7 @@ export function StudentsPage() {
         </button>
       </form>
     </div>
+    {data.score_metric === 'achievement' && <p className="text-sm text-text-secondary">Xếp theo điểm thành tích toàn bộ lịch sử. Dữ liệu đến {scoreDate(data.score_as_of ?? null)}.</p>}
     <div className="overflow-x-auto rounded-md border border-border bg-card">
       <table className="w-full table-fixed text-left text-sm">
         <caption className="sr-only">Danh sách học sinh; học sinh đánh dấu sao được đưa lên đầu trang đang xem</caption>

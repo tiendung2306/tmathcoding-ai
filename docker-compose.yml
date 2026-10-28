@@ -198,7 +198,7 @@ services:
     image: tmath-dashboard-backend
     container_name: tmath-backend
     restart: always
-    environment:
+    environment: &dashboard-runtime-environment
       PROJECT_NAME: ${PROJECT_NAME:-tmath-dashboard}
       API_V1_STR: ${API_V1_STR:-/api/v1}
       DASHBOARD_ADMIN_PROFILE_ID: ${DASHBOARD_ADMIN_PROFILE_ID:-2}
@@ -236,6 +236,26 @@ services:
         condition: service_started
       ollama:
         condition: service_started
+    networks:
+      - dashboard
+      - source-api
+
+  scoring-worker:
+    image: tmath-dashboard-backend
+    restart: always
+    command: [python, -m, app.scoring.worker]
+    cpus: 2
+    mem_limit: 2g
+    environment:
+      <<: *dashboard-runtime-environment
+      OMP_NUM_THREADS: "1"
+      OPENBLAS_NUM_THREADS: "1"
+      MKL_NUM_THREADS: "1"
+    volumes:
+      - ./backend/app:/app/app:ro
+    depends_on:
+      dashboard-migrate:
+        condition: service_completed_successfully
     networks:
       - dashboard
       - source-api

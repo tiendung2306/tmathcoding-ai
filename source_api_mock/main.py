@@ -1776,6 +1776,25 @@ def analytics_tag_problem_pools(db: Session = Depends(get_db), actor_id: int = D
     return TagProblemPools(catalog_version=version, tag_problem_ids=pools)
 
 
+@app.post(f"{API_PREFIX}/scoring/snapshots")
+def scoring_snapshot(db: Session = Depends(get_db), actor_id: int = Depends(actor_profile_id)):
+    if db.get_bind().dialect.name == "mysql":
+        db.connection(execution_options={"isolation_level": "REPEATABLE READ"})
+    if not is_super_admin(db, actor_id):
+        raise HTTPException(403, "Chỉ super admin được xuất dữ liệu điểm toàn kho.")
+    from .scoring import build_snapshot
+    return build_snapshot(db, actor_id, _catalog_version(db, actor_id))
+
+
+@app.get(f"{API_PREFIX}/scoring/snapshots/{{snapshot_id}}/{{section}}")
+def scoring_snapshot_page(snapshot_id: str, section: str, page: int = Query(0, ge=0),
+                          db: Session = Depends(get_db), actor_id: int = Depends(actor_profile_id)):
+    if not is_super_admin(db, actor_id):
+        raise HTTPException(403, "Chỉ super admin được xuất dữ liệu điểm toàn kho.")
+    from .scoring import read_page
+    return read_page(snapshot_id, section, page, actor_id)
+
+
 def _authorized_aggregate_profiles(db: Session, actor_id: int, profile_ids: list[int]) -> list[int]:
     if not 1 <= len(profile_ids) <= 100 or any(value < 1 for value in profile_ids):
         raise HTTPException(422, {"code": "validation_error", "message": "profile_ids must contain 1 to 100 positive IDs"})

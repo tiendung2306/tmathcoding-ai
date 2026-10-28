@@ -54,8 +54,8 @@ class MigrationTests(unittest.TestCase):
             self.assertEqual(set(inspect(connection).get_table_names()),
                              set(DashboardBase.metadata.tables) | {"alembic_version"})
             self.assertEqual(connection.execute(text("SELECT version_num FROM alembic_version")).scalar(),
-                             "20261011_0002")
-            self.assertEqual(ScriptDirectory.from_config(config).get_heads(), ["20261011_0002"])
+                             "20261027_0001")
+            self.assertEqual(ScriptDirectory.from_config(config).get_heads(), ["20261027_0001"])
             command.downgrade(config, "base")
             self.assertEqual(set(inspect(connection).get_table_names()), {"alembic_version"})
             command.upgrade(config, "head")
@@ -120,7 +120,8 @@ class MigrationTests(unittest.TestCase):
 class DatabaseBoundaryTests(unittest.TestCase):
     def test_owned_models_are_separate_and_have_no_source_foreign_keys(self):
         self.assertEqual(set(DashboardBase.metadata.tables),
-                         {"class_star", "tmath_virtual_class_session", "judge_problem_ai_tag", "skill_configuration", "skill_configuration_version", "dashboard_account", "dashboard_auth_session"})
+                         {"class_star", "tmath_virtual_class_session", "judge_problem_ai_tag", "skill_configuration", "skill_configuration_version", "dashboard_account", "dashboard_auth_session",
+                          "scoring_state", "scoring_run", "scoring_item", "scoring_profile", "scoring_pair"})
         self.assertFalse(set(Base.metadata.tables) & set(DashboardBase.metadata.tables))
         self.assertTrue(all(foreign_key.column.table.name in DashboardBase.metadata.tables
                             for table in DashboardBase.metadata.tables.values() for foreign_key in table.foreign_keys))

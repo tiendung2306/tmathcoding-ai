@@ -5,3 +5,4 @@ from app.models.class_preferences import ClassStar
 from app.models.virtual_class import VirtualClassSession
 from app.models.skill_config import SkillConfiguration, SkillConfigurationVersion
 from app.models.auth import DashboardAccount, DashboardAuthSession
+from app.models.scoring import ScoringState, ScoringRun, ScoringItem, ScoringProfile, ScoringPair
