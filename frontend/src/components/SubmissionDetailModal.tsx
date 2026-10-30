@@ -22,7 +22,6 @@ import {
   Copy,
   Check,
   AlertCircle,
-  RotateCcw,
   CheckCircle2,
   XCircle,
 } from 'lucide-react';
@@ -43,7 +42,7 @@ export const SubmissionDetailModal: React.FC<SubmissionDetailModalProps> = ({
   const [detail, setDetail] = useState<SubmissionDetailResponseData | null>(null);
   const [loading, setLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<'overview' | 'diagnosis'>('overview');
+  const [showDiagnosis, setShowDiagnosis] = useState(false);
   const [copied, setCopied] = useState<boolean>(false);
   const [highlightedCode, setHighlightedCode] = useState<string | null>(null);
   const [selectedCaseIndex, setSelectedCaseIndex] = useState(0);
@@ -54,6 +53,7 @@ export const SubmissionDetailModal: React.FC<SubmissionDetailModalProps> = ({
   const [diagnosing, setDiagnosing] = useState<boolean>(false);
   const [diagnosisError, setDiagnosisError] = useState<string | null>(null);
   const pollIntervalRef = useRef<any>(null);
+  const diagnosisRunRef = useRef(0);
 
   const clearPolling = () => {
     if (pollIntervalRef.current) {
@@ -69,44 +69,51 @@ export const SubmissionDetailModal: React.FC<SubmissionDetailModalProps> = ({
   }, []);
 
   useEffect(() => {
-    if (contentRef.current) contentRef.current.scrollTop = 0;
-  }, [activeTab]);
-
-  useEffect(() => {
     let current = true;
     setHighlightedCode(null);
-    if (activeTab !== 'overview' || !detail?.source_code) return;
+    if (!detail?.source_code) return;
     void import('../lib/codeHighlight').then(({ highlightSource }) => {
       if (current) setHighlightedCode(highlightSource(detail.source_code, detail.language_name));
     }).catch(() => {
       if (current) setHighlightedCode(null);
     });
     return () => { current = false; };
-  }, [activeTab, detail?.source_code, detail?.language_name]);
+  }, [detail?.source_code, detail?.language_name]);
 
-  const handleTabKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
-    if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
-    const tabs = Array.from(event.currentTarget.querySelectorAll<HTMLButtonElement>('[role="tab"]'));
-    const current = tabs.indexOf(document.activeElement as HTMLButtonElement);
-    if (current < 0) return;
-    event.preventDefault();
-    const next = event.key === 'Home' ? 0 : event.key === 'End' ? tabs.length - 1
-      : (current + (event.key === 'ArrowRight' ? 1 : -1) + tabs.length) % tabs.length;
-    tabs[next].focus();
-    tabs[next].click();
+  const scrollToDiagnosis = () => {
+    requestAnimationFrame(() => {
+      const content = contentRef.current;
+      if (!content) return;
+      content.scrollTo({
+        top: content.scrollHeight,
+        behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth',
+      });
+    });
   };
 
-  const runDiagnosisFor = async (id: number, forceRefresh: boolean = false) => {
+  useEffect(() => {
+    if (showDiagnosis && detail) scrollToDiagnosis();
+  }, [showDiagnosis, detail]);
+
+  const runDiagnosisFor = async (id: number) => {
+    const runId = ++diagnosisRunRef.current;
     clearPolling();
     setDiagnosing(true);
     setDiagnosisError(null);
-    setActiveTab('diagnosis');
+    setShowDiagnosis(true);
+    scrollToDiagnosis();
     try {
-      const initRes = await requestCodeDoctor(id, forceRefresh);
+      const initRes = await requestCodeDoctor(id, false);
+      if (runId !== diagnosisRunRef.current) return;
 
       // 1. Result already available from Redis Cache
       if (initRes.status === 'COMPLETED' && initRes.result?.diagnosis) {
         setDiagnosis(initRes.result.diagnosis);
+        setDiagnosing(false);
+        return;
+      }
+      if (initRes.status === 'COMPLETED') {
+        setDiagnosisError('Máy chủ chưa trả kết quả chẩn đoán. Vui lòng thử lại.');
         setDiagnosing(false);
         return;
       }
@@ -117,13 +124,19 @@ export const SubmissionDetailModal: React.FC<SubmissionDetailModalProps> = ({
       const maxAttempts = 90; // 180s max for the local CPU model
 
       pollIntervalRef.current = setInterval(async () => {
+        if (runId !== diagnosisRunRef.current) return;
         attempts += 1;
         try {
           const jobRes = await fetchJobStatus(jobId);
+          if (runId !== diagnosisRunRef.current) return;
 
           if (jobRes.status === 'COMPLETED') {
             clearPolling();
-            setDiagnosis(jobRes.result?.diagnosis || null);
+            if (jobRes.result?.diagnosis) {
+              setDiagnosis(jobRes.result.diagnosis);
+            } else {
+              setDiagnosisError('Máy chủ chưa trả kết quả chẩn đoán. Vui lòng thử lại.');
+            }
             setDiagnosing(false);
           } else if (jobRes.status === 'FAILED') {
             clearPolling();
@@ -135,6 +148,7 @@ export const SubmissionDetailModal: React.FC<SubmissionDetailModalProps> = ({
             setDiagnosing(false);
           }
         } catch (pollErr: any) {
+          if (runId !== diagnosisRunRef.current) return;
           console.error('Polling error:', pollErr);
           if (attempts >= maxAttempts) {
             clearPolling();
@@ -144,6 +158,7 @@ export const SubmissionDetailModal: React.FC<SubmissionDetailModalProps> = ({
         }
       }, 2000);
     } catch (err: any) {
+      if (runId !== diagnosisRunRef.current) return;
       console.error(err);
       clearPolling();
       setDiagnosisError(err?.response?.data?.detail || 'Chẩn đoán tạm thời gián đoạn. Vui lòng thử lại.');
@@ -152,9 +167,12 @@ export const SubmissionDetailModal: React.FC<SubmissionDetailModalProps> = ({
   };
 
   useEffect(() => {
+    diagnosisRunRef.current += 1;
+    clearPolling();
+    setDiagnosing(false);
     if (isOpen && submissionId) {
       loadSubmissionDetail(submissionId);
-      setActiveTab(initialTab === 'diagnosis' ? 'diagnosis' : 'overview');
+      setShowDiagnosis(false);
       setSelectedCaseIndex(0);
       setDiagnosis(null);
       setDiagnosisError(null);
@@ -162,11 +180,11 @@ export const SubmissionDetailModal: React.FC<SubmissionDetailModalProps> = ({
         runDiagnosisFor(submissionId);
       }
     } else {
-      clearPolling();
       setDetail(null);
       setError(null);
       setDiagnosis(null);
       setDiagnosisError(null);
+      setShowDiagnosis(false);
     }
   }, [isOpen, submissionId, initialTab]);
 
@@ -195,9 +213,17 @@ export const SubmissionDetailModal: React.FC<SubmissionDetailModalProps> = ({
     }
   };
 
-  const handleRunDiagnosis = (forceRefresh: boolean = false) => {
+  const handleRunDiagnosis = () => {
     if (submissionId) {
-      runDiagnosisFor(submissionId, forceRefresh);
+      runDiagnosisFor(submissionId);
+    }
+  };
+
+  const handleCodeDoctorClick = () => {
+    if (diagnosing || (diagnosis && !diagnosisError)) {
+      scrollToDiagnosis();
+    } else {
+      handleRunDiagnosis();
     }
   };
 
@@ -287,60 +313,32 @@ export const SubmissionDetailModal: React.FC<SubmissionDetailModalProps> = ({
                 <div className="min-w-0"><p className="text-xs text-text-secondary">Kiểm thử đạt</p><p className="mt-0.5 font-mono text-sm font-semibold text-text-primary">{totalCases > 0 ? `${passedCases} / ${totalCases}` : 'Chưa có'}</p></div>
               </div>
 
-              <div className="-mx-4 mt-2 flex gap-1 border-b border-border px-4 sm:-mx-6 sm:px-6" role="tablist" aria-label="Chi tiết bài nộp" onKeyDown={handleTabKeyDown}>
-                <button
-                  type="button"
-                  role="tab"
-                  id="submission-tab-overview"
-                  aria-controls="submission-tab-panel"
-                  aria-selected={activeTab === 'overview'}
-                  tabIndex={activeTab === 'overview' ? 0 : -1}
-                  onClick={() => setActiveTab('overview')}
-                  className={`flex min-h-11 shrink-0 items-center border-b-2 px-3 text-sm font-medium transition-colors whitespace-nowrap hover:bg-card-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand-primary ${
-                    activeTab === 'overview'
-                      ? 'border-brand-primary text-brand-primary'
-                      : 'border-transparent text-text-secondary hover:text-text-primary'
-                  }`}
-                >
-                  <span>Bài nộp</span>
-                </button>
-
-                <button
-                  type="button"
-                  role="tab"
-                  id="submission-tab-diagnosis"
-                  aria-controls="submission-tab-panel"
-                  aria-selected={activeTab === 'diagnosis'}
-                  tabIndex={activeTab === 'diagnosis' ? 0 : -1}
-                  onClick={() => setActiveTab('diagnosis')}
-                  className={`flex min-h-11 shrink-0 items-center border-b-2 px-3 text-sm font-medium transition-colors whitespace-nowrap hover:bg-card-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand-primary ${
-                    activeTab === 'diagnosis'
-                      ? 'border-red-600 text-red-700 font-semibold'
-                      : 'border-transparent text-text-secondary hover:text-text-primary'
-                  }`}
-                >
-                  <span>Code Doctor</span>
-                  {diagnosis && (
-                    <span aria-hidden="true" className="ml-0.5 inline-block h-1.5 w-1.5 rounded-full bg-red-600" />
-                  )}
-                </button>
-              </div>
             </DialogHeader>
 
-            <div ref={contentRef} id="submission-tab-panel" role="tabpanel" aria-labelledby={`submission-tab-${activeTab}`} tabIndex={0} className="min-h-0 flex-1 overflow-y-auto overscroll-contain focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand-primary lg:overflow-hidden">
-              {activeTab === 'overview' && (
-                <div className="grid min-h-0 gap-2 bg-card-subtle p-2 lg:h-full lg:grid-cols-2">
-                  <section aria-label="Đề bài" tabIndex={0} className="min-w-0 rounded-md border border-border bg-card p-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand-primary lg:min-h-0 lg:overflow-y-auto lg:p-5">
-                    <div className="mx-auto max-w-[78ch] space-y-5">
+            <div ref={contentRef} tabIndex={0} aria-label="Chi tiết bài nộp" className="min-h-0 flex-1 overflow-y-auto overscroll-contain bg-card-subtle focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand-primary">
+                <div className="grid gap-2 p-2 lg:h-full lg:min-h-0 lg:grid-cols-2">
+                  <section aria-label="Đề bài" tabIndex={0} className="max-h-[55dvh] min-w-0 overflow-y-auto overscroll-contain rounded-md border border-border bg-card p-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand-primary lg:max-h-none lg:min-h-0 lg:p-5">
+                    <div className="space-y-5">
                       <div className="space-y-2 border-b border-border pb-3">
-                        <h2 className="text-base font-semibold text-text-primary">Đề bài</h2>
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <h2 className="text-base font-semibold text-text-primary">Đề bài</h2>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={handleCodeDoctorClick}
+                            className="min-h-11 gap-2 px-3 text-sm focus-visible:ring-2 focus-visible:ring-brand-primary"
+                          >
+                            {diagnosing ? <Loader2 aria-hidden="true" className="h-4 w-4 motion-safe:animate-spin" /> : <Stethoscope aria-hidden="true" className="h-4 w-4" />}
+                            <span>{diagnosing ? 'Đang chẩn đoán' : diagnosisError ? 'Thử lại Code Doctor' : diagnosis ? 'Xem nhận xét' : 'Code Doctor'}</span>
+                          </Button>
+                        </div>
                         <div className="flex flex-wrap gap-x-5 gap-y-1 text-xs text-text-secondary sm:text-sm">
                           <span>Giới hạn thời gian <strong className="font-mono font-medium text-text-primary">{detail.time_limit} giây</strong></span>
                           <span>Giới hạn bộ nhớ <strong className="font-mono font-medium text-text-primary">{detail.memory_limit} MB</strong></span>
                         </div>
                       </div>
 
-                      <div className="min-w-0">
+                      <div className="mx-auto max-w-[78ch] min-w-0">
                         {problemDescription ? (
                           <MarkdownMath
                             content={problemDescription}
@@ -395,7 +393,6 @@ export const SubmissionDetailModal: React.FC<SubmissionDetailModalProps> = ({
                     <section aria-label="Kết quả kiểm thử" className="flex min-h-0 min-w-0 flex-col overflow-hidden rounded-md border border-border bg-card">
                       <div className="flex shrink-0 items-center justify-between border-b border-border bg-card-subtle/70 px-3 py-3 text-sm">
                         <h2 className="font-semibold text-text-primary">Kết quả kiểm thử</h2>
-                        <span className="text-text-secondary">{totalCases > 0 ? `${passedCases} / ${totalCases} đạt` : 'Chưa có dữ liệu'}</span>
                       </div>
                       <div tabIndex={0} aria-label="Danh sách kết quả kiểm thử" className="max-h-[35dvh] min-h-0 flex-1 overflow-auto focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand-primary lg:max-h-none">
                         {totalCases === 0 ? (
@@ -442,104 +439,51 @@ export const SubmissionDetailModal: React.FC<SubmissionDetailModalProps> = ({
                     </section>
                   </div>
                 </div>
-              )}
-
-              {activeTab === 'diagnosis' && (
-                <div className="mx-auto h-full max-w-4xl space-y-3.5 overflow-y-auto p-4 sm:p-6">
+              {showDiagnosis && (
+                <section id="code-doctor-section" aria-label="Code Doctor" aria-live="polite" className="mx-auto max-w-4xl border-t border-border px-3 py-5 sm:px-5">
                   {diagnosing ? (
-                    <div role="status" aria-live="polite" className="rounded-md border border-border bg-card p-6 space-y-3 text-center">
-                      <div className="p-3 w-12 h-12 rounded-full bg-red-50 border border-red-200 text-red-600 mx-auto flex items-center justify-center">
-                        <Loader2 aria-hidden="true" className="w-6 h-6 motion-safe:animate-spin" />
+                    <div role="status" className="flex items-start gap-3 rounded-md border border-border bg-card p-4 sm:p-5">
+                      <Loader2 aria-hidden="true" className="mt-0.5 h-5 w-5 shrink-0 text-brand-primary motion-safe:animate-spin" />
+                      <div className="min-w-0 space-y-1">
+                        <h3 className="text-base font-semibold text-text-primary">Đang chẩn đoán bài nộp</h3>
+                        <p className="text-sm leading-6 text-text-secondary">
+                          Đang đối chiếu đề bài, mã nguồn và kết quả kiểm thử. Quá trình này có thể mất vài phút.
+                        </p>
                       </div>
-                      <h4 className="text-sm font-semibold text-text-primary">
-                        Đang phân tích bài nộp
-                      </h4>
-                      <p className="mx-auto max-w-md text-sm leading-relaxed text-text-secondary">
-                        Đang đối chiếu đề bài, mã nguồn và kết quả kiểm thử.
-                      </p>
                     </div>
                   ) : diagnosisError ? (
-                    <div className="rounded-md border border-red-200 bg-red-50 p-4 space-y-2 text-center">
-                      <AlertCircle className="w-6 h-6 text-red-600 mx-auto" />
-                      <p className="text-sm font-medium text-red-700">{diagnosisError}</p>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => handleRunDiagnosis(false)}
-                        className="text-xs gap-1.5 border-red-200 text-red-700 hover:bg-red-100"
-                      >
-                        <RotateCcw className="w-3.5 h-3.5" />
-                        <span>Thử chẩn đoán lại</span>
-                      </Button>
-                    </div>
-                  ) : diagnosis ? (
-                    <div className="rounded-lg border border-border bg-card p-4 sm:p-5 space-y-3.5">
-                      {/* Summary Banner */}
-                      <div className="flex items-center justify-between border-b border-border/60 pb-3">
-                        <div className="flex items-center gap-2">
-                          <div className="p-1.5 rounded bg-red-50 border border-red-200 text-red-600">
-                            <Stethoscope className="w-4 h-4" />
-                          </div>
-                          <div>
-                            <h4 className="text-sm font-semibold text-text-primary">
-                              Chẩn đoán bài nộp
-                            </h4>
-                            <p className="text-xs text-text-secondary">
-                              {detail.problem_name}
-                            </p>
-                          </div>
+                    <div role="alert" className="flex items-start gap-3 rounded-md border border-border bg-card p-4 sm:p-5">
+                      <AlertCircle aria-hidden="true" className="mt-0.5 h-5 w-5 shrink-0 text-red-700" />
+                      <div className="min-w-0 space-y-3">
+                        <div>
+                          <h3 className="text-base font-semibold text-text-primary">Chẩn đoán chưa hoàn tất</h3>
+                          <p className="mt-1 text-sm leading-6 text-text-secondary">{diagnosisError}</p>
                         </div>
-                        <Badge variant="wa" className="font-mono text-xs">
-                          {diagnosis.error_category}
-                        </Badge>
-                      </div>
-
-                      {/* Single Cohesive Paragraph */}
-                      <div className="rounded-md bg-card-subtle/70 border border-border/70 p-4">
-                        <MarkdownMath
-                          content={diagnosis.advice || diagnosis.summary || ''}
-                          className="markdown-submission text-sm leading-7 text-text-primary"
-                        />
-                      </div>
-
-                      <div className="pt-1 flex justify-end">
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => handleRunDiagnosis(true)}
-                          disabled={diagnosing}
-                          className="min-h-9 gap-1.5 px-2.5 text-xs"
-                        >
-                          <RotateCcw className="w-3 h-3 text-text-secondary" />
-                          <span>Chẩn đoán lại (Làm mới)</span>
+                        <Button variant="outline" size="sm" onClick={handleRunDiagnosis} className="min-h-11 px-3 text-sm">
+                          Thử lại
                         </Button>
                       </div>
                     </div>
+                  ) : diagnosis ? (
+                    <div className="rounded-md border border-border bg-card p-4 sm:p-5">
+                      <h3 className="border-b border-border pb-3 text-base font-semibold text-text-primary">
+                        {diagnosis.origin === 'fallback' ? 'Hướng dẫn chung' : diagnosis.origin === 'verdict' ? 'Kết quả chấm' : 'Nhận xét Code Doctor'}
+                      </h3>
+                      <div className="pt-4">
+                        {diagnosis.origin === 'fallback' && (
+                          <p className="mb-3 text-sm leading-6 text-text-secondary">
+                            AI chưa hoàn tất chẩn đoán. Nội dung dưới đây chỉ dựa trên kết quả chấm, chưa xác định lỗi trong mã nguồn.
+                          </p>
+                        )}
+                        <MarkdownMath content={diagnosis.advice || diagnosis.summary || ''} className="markdown-submission text-sm leading-7 text-text-primary" />
+                      </div>
+                    </div>
                   ) : (
-                    <div className="rounded-md border border-border bg-card p-6 space-y-3 text-center">
-                      <div className="p-3 w-12 h-12 rounded-full bg-red-50 border border-red-200 text-red-600 mx-auto flex items-center justify-center">
-                        <Stethoscope className="w-6 h-6" />
-                      </div>
-                      <div className="space-y-1">
-                        <h4 className="text-sm font-semibold text-text-primary">
-                          Chưa có nhận xét cho bài nộp này
-                        </h4>
-                        <p className="mx-auto max-w-md text-sm leading-relaxed text-text-secondary">
-                          Chẩn đoán sẽ dựa trên đề bài, mã nguồn và kết quả kiểm thử.
-                        </p>
-                      </div>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => handleRunDiagnosis(false)}
-                        className="min-h-10 gap-1.5 border-red-200 bg-red-50 px-3 text-xs text-red-700 hover:bg-red-100"
-                      >
-                        <Stethoscope className="w-3.5 h-3.5 text-red-600" />
-                        <span>Chẩn đoán bài nộp này</span>
-                      </Button>
+                    <div className="rounded-md border border-border bg-card p-4 sm:p-5">
+                      <h3 className="text-base font-semibold text-text-primary">Chưa có kết quả chẩn đoán</h3>
                     </div>
                   )}
-                </div>
+                </section>
               )}
             </div>
 

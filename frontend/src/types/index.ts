@@ -76,6 +76,7 @@ export interface SkillTreeResponseData {
 
 export interface CodeDoctorDiagnosisData {
   error_category: string;
+  origin: 'ai' | 'fallback' | 'verdict';
   advice?: string;
   summary?: string;
   guiding_question?: string;

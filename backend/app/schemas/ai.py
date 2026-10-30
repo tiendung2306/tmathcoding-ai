@@ -1,5 +1,5 @@
 from pydantic import BaseModel, Field
-from typing import List, Optional
+from typing import List, Literal, Optional
 
 class CodeDoctorDiagnosis(BaseModel):
     error_category: str = Field(description="Loại lỗi: TIME_LIMIT_EXCEEDED, WRONG_ANSWER, RUNTIME_ERROR, COMPILE_ERROR")
@@ -7,6 +7,9 @@ class CodeDoctorDiagnosis(BaseModel):
     summary: Optional[str] = Field(default=None, description="Tóm tắt ngắn gọn")
     guiding_question: Optional[str] = Field(default=None, description="Câu hỏi gợi mở (nếu có)")
     actionable_hint: Optional[str] = Field(default=None, description="Gợi ý hướng tiếp cận (nếu có)")
+    origin: Literal["ai", "fallback", "verdict"] = Field(
+        default="ai", description="Nguồn nhận xét: AI, hướng dẫn dự phòng, hoặc kết quả chấm"
+    )
 
 class CodeDoctorRequest(BaseModel):
     submission_id: int

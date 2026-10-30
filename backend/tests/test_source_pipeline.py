@@ -14,7 +14,7 @@ from app.services.competency_evaluator import analyze_source_code
 from app.services.tag_ai_service import TagAIService
 from app.schemas.analytics import AICommentaryResponse, Recent7DaysSummary
 from app.api.v1.endpoints.student import get_student_ai_commentary
-from app.services.source_gateway import SourceProblem, SourceAcceptedSample, SourceAcceptedSamplesResponse
+from app.services.source_gateway import SourceProblem, SourceAcceptedSample, SourceAcceptedSamplesResponse, SourceTestcase
 
 
 class ContextTests(unittest.TestCase):
@@ -158,12 +158,43 @@ class PipelineTests(unittest.IsolatedAsyncioTestCase):
                 patch("app.services.code_doctor_service.job_manager.enqueue_job", new=AsyncMock(side_effect=[("job1", True), ("job2", True)])) as enqueue:
             await service.diagnose_submission_async(1, source, 9)
             first_key = enqueue.await_args_list[0].kwargs["entity_key"]
-            source.submission.result = "AC"
+            source.submission.result = "TLE"
             source.submission.source_code = "int main(){return 9;}"
             await service.diagnose_submission_async(1, source, 9)
         second_key = enqueue.await_args_list[1].kwargs["entity_key"]
         self.assertNotEqual(first_key, second_key)
         self.assertNotIn(source.submission.source_code, second_key)
+
+    async def test_accepted_submission_returns_verdict_without_model_or_cache(self):
+        source = DoctorGateway()
+        source.submission.result = "AC"
+        service = CodeDoctorService()
+        with patch("app.services.code_doctor_service.cache_get", new=AsyncMock()) as cache, \
+                patch("app.services.code_doctor_service.job_manager.enqueue_job", new=AsyncMock()) as enqueue, \
+                patch("app.services.code_doctor_service.llm_adapter.generate_text", new=AsyncMock()) as llm:
+            response = await service.diagnose_submission_async(1, source, 2, force_refresh=True)
+            direct = await service._diagnose_submission_core(1, source, 2)
+        self.assertEqual(response.status.value, "COMPLETED")
+        self.assertEqual(response.result["diagnosis"]["origin"], "verdict")
+        self.assertEqual(response.result["diagnosis"]["error_category"], "AC")
+        self.assertIn("đã đạt AC", response.result["diagnosis"]["advice"])
+        self.assertEqual(direct.diagnosis.origin, "verdict")
+        cache.assert_not_awaited()
+        enqueue.assert_not_awaited()
+        llm.assert_not_awaited()
+
+    async def test_non_diagnosable_verdicts_do_not_call_model(self):
+        for result, status, category in (("SC", "D", "SC"), ("WA", "P", "PENDING"),
+                                         ("WA", "IE", "IE"), (None, "D", "PENDING")):
+            with self.subTest(result=result, status=status):
+                source = DoctorGateway()
+                source.submission.result = result
+                source.submission.status = status
+                with patch("app.services.code_doctor_service.job_manager.enqueue_job", new=AsyncMock()) as enqueue:
+                    response = await CodeDoctorService().diagnose_submission_async(1, source, 2)
+                self.assertEqual(response.result["diagnosis"]["origin"], "verdict")
+                self.assertEqual(response.result["diagnosis"]["error_category"], category)
+                enqueue.assert_not_awaited()
 
     async def test_code_doctor_memory_fallback_is_bounded_lru(self):
         service = CodeDoctorService()
@@ -187,9 +218,11 @@ class PipelineTests(unittest.IsolatedAsyncioTestCase):
         cache_key = service._cache_key(1, service._input_fingerprint(source.submission, problem))
         service._memory_cache[cache_key] = 'stale result'
         with patch('app.services.code_doctor_service.llm_adapter.generate_text', new=AsyncMock(side_effect=TimeoutError)), patch('app.services.code_doctor_service.cache_set', new=AsyncMock()) as cache:
-            await service._diagnose_submission_core(1, source, 2)
+            response = await service._diagnose_submission_core(1, source, 2)
         self.assertEqual(cache.call_args.kwargs['expire'], 300)
         self.assertNotIn(cache_key, service._memory_cache)
+        self.assertEqual(response.diagnosis.origin, 'fallback')
+        self.assertIn('Chưa xác định', response.diagnosis.advice)
 
     async def test_cancelled_diagnosis_does_not_write_cache(self):
         with patch('app.services.code_doctor_service.llm_adapter.generate_text', new=AsyncMock(side_effect=asyncio.CancelledError)), patch('app.services.code_doctor_service.cache_set', new=AsyncMock()) as cache:
@@ -203,9 +236,34 @@ class PipelineTests(unittest.IsolatedAsyncioTestCase):
         problem = await source.get_problem(3, actor_profile_id=2)
         cache_key = service._cache_key(1, service._input_fingerprint(source.submission, problem))
         with patch('app.services.code_doctor_service.llm_adapter.generate_text', new=AsyncMock(return_value='Hàm main trả về 7 nên kết quả không đúng với đề bài.')), patch('app.services.code_doctor_service.cache_set', new=AsyncMock()) as cache:
-            await service._diagnose_submission_core(1, source, 2)
+            response = await service._diagnose_submission_core(1, source, 2)
         self.assertEqual(cache.call_args.kwargs['expire'], 7 * 86400)
         self.assertIn(cache_key, service._memory_cache)
+        self.assertEqual(response.diagnosis.origin, 'ai')
+
+    async def test_verdict_specific_prompt_reaches_model(self):
+        for verdict, expected_focus in (("WA", "Đối chiếu logic"), ("TLE", "độ phức tạp"),
+                                        ("RTE", "vị trí có thể gây lỗi"), ("CE", "thông báo biên dịch"),
+                                        ("MLE", "cấp phát bộ nhớ"), ("OLE", "quá nhiều đầu ra")):
+            with self.subTest(verdict=verdict):
+                source = DoctorGateway()
+                source.submission.result = verdict
+                with patch('app.services.code_doctor_service.llm_adapter.generate_text', new=AsyncMock(return_value='Mã nguồn cần kiểm tra ở hàm main theo phản hồi chấm.')) as llm, \
+                        patch('app.services.code_doctor_service.cache_set', new=AsyncMock()):
+                    response = await CodeDoctorService()._diagnose_submission_core(1, source, 2)
+                self.assertIn(expected_focus, llm.call_args.kwargs['prompt'])
+                self.assertEqual(response.diagnosis.origin, 'ai')
+
+    async def test_doctor_includes_failure_after_first_fifteen_cases(self):
+        source = DoctorGateway()
+        source.submission.testcases = [SourceTestcase(case=index, status='AC') for index in range(1, 17)]
+        source.submission.testcases.append(SourceTestcase(case=17, status='WA', feedback='Sai kết quả'))
+        with patch('app.services.code_doctor_service.llm_adapter.generate_text', new=AsyncMock(return_value='Cần kiểm tra nhánh trả về trong hàm main.')) as llm, \
+                patch('app.services.code_doctor_service.cache_set', new=AsyncMock()):
+            await CodeDoctorService()._diagnose_submission_core(1, source, 2)
+        prompt = llm.call_args.kwargs['prompt']
+        self.assertIn('16/17', prompt)
+        self.assertIn('Test #17 [WA]', prompt)
 
     async def test_code_doctor_disables_local_ollama_thinking(self):
         with patch('app.services.code_doctor_service.settings.LLM_BASE_URL', 'http://ollama:11434/v1'), \
