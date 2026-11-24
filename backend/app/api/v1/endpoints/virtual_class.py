@@ -1,23 +1,27 @@
+"""Class sessions ("phiên học") are contests owned by the Source API.
+
+The dashboard no longer creates or stops sessions itself: a session is a contest
+mapped to one or more classes, and its live view reads the classes' submissions
+inside the contest's time window. The legacy `tmath_virtual_class_session` table is
+kept for historical data only.
+"""
+import asyncio
 import logging
 from datetime import timezone
-from typing import List, Optional
+
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, desc
-from app.core.dashboard_database import get_dashboard_db
+
+from app.core.auth import get_current_user
+from app.core.request_cache import cached_call
 from app.core.time import utc_now
-from app.models.virtual_class import VirtualClassSession
-from app.schemas.virtual_class import (
-    LiveSubmissionItem, LiveSubmissionEvent, VirtualClassStatus, LiveSubmissionsResponse,
-    VirtualClassSessionItem, VirtualClassSessionListResponse, VirtualClassSessionDetail
-)
-from app.services.class_access import get_visible_class
+from app.schemas.virtual_class import LiveSubmissionEvent, LiveSubmissionItem, LiveSubmissionsResponse, SessionProblem
 from app.services.contest_access import get_visible_contest
 from app.services.source_gateway import SourceGateway, get_source_gateway
-from app.core.auth import get_current_user
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
+
+CONTEST_LIVE_TTL_SECONDS = 3
 
 
 def _to_utc_aware(value):
@@ -26,259 +30,127 @@ def _to_utc_aware(value):
     return value.astimezone(timezone.utc)
 
 
-@router.get("/contests/{contest_id}/live-submissions", response_model=LiveSubmissionsResponse)
-async def get_contest_live_submissions(
-    contest_id: int,
-    source: SourceGateway = Depends(get_source_gateway),
-    actor=Depends(get_current_user),
-):
-    """Read submissions made by students in a contest's mapped classes during its time window."""
-    contest = await get_visible_contest(source, contest_id, actor.profile_id)
+def contest_class_scope(contest, class_id: int | None) -> list[int]:
+    """Classes of a contest to read, optionally narrowed to one mapped class."""
+    if class_id is None:
+        return list(contest.class_ids)
+    if class_id not in contest.class_ids:
+        raise HTTPException(404, "Lớp không thuộc phiên học này.")
+    return [class_id]
+
+
+async def _class_submissions_in_window(source: SourceGateway, class_id: int, actor_profile_id: int,
+                                       starts_at, cutoff) -> list:
+    items, cursor, seen_cursors = [], None, set()
+    while True:
+        page = await source.list_class_submissions(
+            class_id, actor_profile_id=actor_profile_id, date_from=starts_at, date_to=cutoff,
+            after_submission_id=None, cursor=cursor, limit=100,
+        )
+        items.extend(page.items)
+        if not page.has_more:
+            return items
+        cursor = page.next_cursor
+        if not cursor or cursor in seen_cursors:
+            raise HTTPException(502, "Dịch vụ dữ liệu nguồn trả cursor bài nộp không hợp lệ.")
+        seen_cursors.add(cursor)
+
+
+def problem_label(index: int) -> str:
+    """A, B, ..., Z, AA, AB, ... like the judge's contest problem labels."""
+    label = ""
+    index += 1
+    while index:
+        index, remainder = divmod(index - 1, 26)
+        label = chr(65 + remainder) + label
+    return label
+
+
+async def _session_problems(source: SourceGateway, contest_id: int, actor_profile_id: int) -> list[SessionProblem]:
+    try:
+        page = await source.list_contest_problems(contest_id, actor_profile_id=actor_profile_id)
+    except HTTPException as exc:
+        if exc.status_code == 404:  # provider without contest problems: fall back to all submissions
+            return []
+        raise
+    ordered = sorted(page.items, key=lambda item: (item.order, item.problem_id))
+    return [SessionProblem(problem_id=item.problem_id, code=item.code, title=item.title, label=problem_label(index),
+                           points=item.points, problem_points=item.problem_points, partial=item.partial)
+            for index, item in enumerate(ordered)]
+
+
+def contest_score(item, problem: SessionProblem | None) -> float | None:
+    """Submission points on the contest's scale, the way the judge scores contest submissions."""
+    if problem is None or problem.points is None:
+        return None
+    if item.result == "AC":
+        return float(problem.points)
+    if not problem.partial or not item.points or not problem.problem_points:
+        return 0.0
+    return round(min(item.points / problem.problem_points, 1) * problem.points, 3)
+
+
+async def _contest_live_snapshot(source: SourceGateway, contest_id: int, actor_profile_id: int,
+                                 class_id: int | None) -> LiveSubmissionsResponse:
+    contest = await get_visible_contest(source, contest_id, actor_profile_id)
+    class_ids = contest_class_scope(contest, class_id)
+    problems = await _session_problems(source, contest_id, actor_profile_id)
+    problem_ids = {problem.problem_id for problem in problems}
     now = _to_utc_aware(utc_now())
     starts_at = _to_utc_aware(contest.starts_at)
     ends_at = _to_utc_aware(contest.ends_at)
     cutoff = min(now, ends_at)
     submissions = {}
-
-    if starts_at < cutoff:
-        for class_id in contest.class_ids:
-            cursor = None
-            seen_cursors: set[str] = set()
-            while True:
-                page = await source.list_class_submissions(
-                    class_id,
-                    actor_profile_id=actor.profile_id,
-                    date_from=starts_at,
-                    date_to=cutoff,
-                    after_submission_id=None,
-                    cursor=cursor,
-                    limit=100,
-                )
-                for item in page.items:
+    if starts_at < cutoff and class_ids:
+        # Classes are independent; load them concurrently (the gateway bounds concurrency).
+        pages = await asyncio.gather(*(
+            _class_submissions_in_window(source, item, actor_profile_id, starts_at, cutoff)
+            for item in class_ids
+        ))
+        for items in pages:
+            for item in items:
+                # A session counts only its own problems when the source lists them.
+                if not problem_ids or item.problem_id in problem_ids:
                     submissions[item.submission_id] = item
-                if not page.has_more:
-                    break
-                cursor = page.next_cursor
-                if not cursor or cursor in seen_cursors:
-                    raise HTTPException(502, "Dịch vụ dữ liệu nguồn trả cursor bài nộp không hợp lệ.")
-                seen_cursors.add(cursor)
 
     ordered = sorted(submissions.values(), key=lambda item: (item.submitted_at, item.submission_id), reverse=True)
+    by_id = {problem.problem_id: problem for problem in problems}
     return LiveSubmissionsResponse(
-        events=[LiveSubmissionEvent(kind="created", submission_id=item.submission_id, record=_live_item(item))
+        events=[LiveSubmissionEvent(kind="created", submission_id=item.submission_id,
+                                    record=_live_item(item, contest_score(item, by_id.get(item.problem_id))))
                 for item in ordered],
+        problems=problems,
         snapshot=True,
         is_active=contest.status == "active",
     )
 
 
-@router.get("/sessions/{session_id}", response_model=VirtualClassSessionDetail)
-async def get_virtual_class_session(
-    session_id: int,
-    db: AsyncSession = Depends(get_dashboard_db),
+@router.get("/contests/{contest_id}/live-submissions", response_model=LiveSubmissionsResponse)
+async def get_contest_live_submissions(
+    contest_id: int,
+    class_id: int | None = Query(None, ge=1, description="Chỉ đọc bài nộp của một lớp thuộc phiên học"),
     source: SourceGateway = Depends(get_source_gateway),
     actor=Depends(get_current_user),
 ):
-    session = (await db.execute(select(VirtualClassSession).where(
-        VirtualClassSession.id == session_id
-    ))).scalar_one_or_none()
-    if session is None:
-        raise HTTPException(status_code=404, detail="Không tìm thấy phiên học.")
-    organization = await get_visible_class(source, session.org_id, actor.profile_id)
-    return VirtualClassSessionDetail(
-        id=session.id, org_id=session.org_id,
-        name=session.name or f"Phiên học {session.start_time.strftime('%d/%m/%Y %H:%M')}",
-        start_time=session.start_time, end_time=session.end_time,
-        class_name=organization.name or f"Lớp #{organization.class_id}",
-    )
-
-@router.get("/{org_id}/sessions", response_model=VirtualClassSessionListResponse)
-async def get_virtual_class_sessions(
-    org_id: int,
-    db: AsyncSession = Depends(get_dashboard_db),
-    source: SourceGateway = Depends(get_source_gateway),
-    actor=Depends(get_current_user),
-):
-    """Lấy danh sách tất cả các phiên học ảo của một lớp."""
-    await get_visible_class(source, org_id, actor.profile_id)
-    stmt = (
-        select(VirtualClassSession)
-        .where(VirtualClassSession.org_id == org_id)
-        .order_by(desc(VirtualClassSession.start_time))
-    )
-    res = await db.execute(stmt)
-    sessions = res.scalars().all()
-    
-    session_items = []
-    active_session = None
-    
-    for s in sessions:
-        item = VirtualClassSessionItem(
-            id=s.id,
-            org_id=s.org_id,
-            name=s.name or f"Phiên học {s.start_time.strftime('%d/%m/%Y %H:%M')}",
-            start_time=s.start_time,
-            end_time=s.end_time
-        )
-        session_items.append(item)
-        if s.end_time is None:
-            active_session = item
-            
-    return VirtualClassSessionListResponse(
-        sessions=session_items,
-        active_session=active_session
-    )
-
-@router.post("/{org_id}/start", response_model=VirtualClassSessionItem)
-async def start_virtual_class(
-    org_id: int,
-    name: Optional[str] = None,
-    db: AsyncSession = Depends(get_dashboard_db),
-    source: SourceGateway = Depends(get_source_gateway),
-    actor=Depends(get_current_user),
-):
-    """Bắt đầu một phiên học ảo mới."""
-    await get_visible_class(source, org_id, actor.profile_id)
-    # Check if there is an active session
-    stmt = select(VirtualClassSession).where(
-        VirtualClassSession.org_id == org_id,
-        VirtualClassSession.end_time.is_(None)
-    )
-    res = await db.execute(stmt)
-    active = res.scalar_one_or_none()
-    
-    if active:
-        raise HTTPException(status_code=400, detail="Đang có một phiên học diễn ra. Không thể tạo phiên mới.")
-        
-    new_session = VirtualClassSession(
-        org_id=org_id,
-        name=name,
-        start_time=utc_now()
-    )
-    db.add(new_session)
-    await db.commit()
-    await db.refresh(new_session)
-    
-    return VirtualClassSessionItem(
-        id=new_session.id,
-        org_id=new_session.org_id,
-        name=new_session.name or f"Phiên học {new_session.start_time.strftime('%d/%m/%Y %H:%M')}",
-        start_time=new_session.start_time,
-        end_time=new_session.end_time
-    )
-
-@router.post("/sessions/{session_id}/stop", response_model=VirtualClassSessionItem)
-async def stop_virtual_class(
-    session_id: int,
-    db: AsyncSession = Depends(get_dashboard_db),
-    source: SourceGateway = Depends(get_source_gateway),
-    actor=Depends(get_current_user),
-):
-    """Kết thúc một phiên học ảo."""
-    stmt = select(VirtualClassSession).where(VirtualClassSession.id == session_id)
-    res = await db.execute(stmt)
-    session = res.scalar_one_or_none()
-    
-    if not session:
-        raise HTTPException(status_code=404, detail="Không tìm thấy phiên học.")
-
-    await get_visible_class(source, session.org_id, actor.profile_id)
-        
-    if session.end_time is None:
-        session.end_time = utc_now()
-        await db.commit()
-        await db.refresh(session)
-        
-    return VirtualClassSessionItem(
-        id=session.id,
-        org_id=session.org_id,
-        name=session.name or f"Phiên học {session.start_time.strftime('%d/%m/%Y %H:%M')}",
-        start_time=session.start_time,
-        end_time=session.end_time
-    )
-
-@router.get("/sessions/{session_id}/live-submissions", response_model=LiveSubmissionsResponse)
-async def get_live_submissions(
-    session_id: int,
-    cursor: Optional[str] = Query(None, description="Cursor sự kiện trả về từ lần polling trước"),
-    limit: int = Query(100, ge=1, le=100),
-    dashboard_db: AsyncSession = Depends(get_dashboard_db),
-    source: SourceGateway = Depends(get_source_gateway),
-    actor=Depends(get_current_user),
-):
-    """Đọc snapshot hoặc các thay đổi bài nộp của phiên học."""
-    stmt_sess = select(VirtualClassSession).where(VirtualClassSession.id == session_id)
-    res_sess = await dashboard_db.execute(stmt_sess)
-    session = res_sess.scalar_one_or_none()
-    
-    if not session:
-        raise HTTPException(status_code=404, detail="Session not found.")
-
-    await get_visible_class(source, session.org_id, actor.profile_id)
-        
-    if cursor is not None:
-        page = await source.list_class_submission_changes(
-            session.org_id, actor_profile_id=actor.profile_id, cursor=cursor,
-            date_from=session.start_time, date_to=session.end_time, limit=limit,
-        )
-        events = [
-            LiveSubmissionEvent(
-                kind=event.kind,
-                submission_id=event.submission_id,
-                record=_live_item(event.record) if event.record is not None else None,
-            )
-            for event in page.events
-        ]
-        return LiveSubmissionsResponse(
-            events=events, cursor=page.next_cursor,
-            high_watermark=page.high_watermark, snapshot=False,
-            is_active=session.end_time is None,
-        )
-
-    # The first page's high_watermark is an atomic handoff to the changes feed.
-    upstream_cursor: str | None = None
-    pinned_watermark: str | None = None
-    snapshot_items: list[LiveSubmissionItem] = []
-    seen_cursors: set[str] = set()
-    while True:
-        page = await source.list_class_submissions(
-            session.org_id, actor_profile_id=actor.profile_id,
-            date_from=session.start_time, date_to=session.end_time,
-            cursor=upstream_cursor, limit=limit,
-        )
-        if pinned_watermark is None:
-            pinned_watermark = page.high_watermark
-        elif page.high_watermark != pinned_watermark:
-            raise HTTPException(409, "Snapshot bài nộp đã thay đổi. Hãy tải lại phiên.")
-        snapshot_items.extend(_live_item(item) for item in page.items)
-        if not page.has_more:
-            break
-        next_cursor = page.next_cursor
-        if not next_cursor or next_cursor in seen_cursors:
-            raise HTTPException(502, "Dịch vụ dữ liệu nguồn trả cursor phân trang không hợp lệ.")
-        seen_cursors.add(next_cursor)
-        upstream_cursor = next_cursor
-
-    if pinned_watermark is None:
-        raise HTTPException(502, "Dịch vụ dữ liệu nguồn thiếu high watermark cho snapshot.")
-    return LiveSubmissionsResponse(
-        events=[LiveSubmissionEvent(kind="created", submission_id=item.id, record=item)
-                for item in snapshot_items],
-        cursor=pinned_watermark, high_watermark=None, snapshot=True,
-        is_active=session.end_time is None,
+    """Submissions by students of the session's classes during its time window."""
+    return await cached_call(
+        ("contest-live", actor.profile_id, contest_id, class_id), CONTEST_LIVE_TTL_SECONDS,
+        lambda: _contest_live_snapshot(source, contest_id, actor.profile_id, class_id),
     )
 
 
-def _live_item(item) -> LiveSubmissionItem:
+def _live_item(item, score: float | None = None) -> LiveSubmissionItem:
     return LiveSubmissionItem(
         id=item.submission_id,
         user_id=item.profile_id,
         user_name=item.student_name or f"User {item.profile_id}",
         problem_id=item.problem_id,
+        problem_code=item.problem_code,
         problem_name=item.problem_title or item.problem_code or f"Bài #{item.problem_id}",
         date=item.submitted_at,
         result=item.result or item.status or "?",
         points=item.points or 0,
+        score=score,
         time=item.time,
         memory=item.memory,
         source=None,

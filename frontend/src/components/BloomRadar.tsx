@@ -27,7 +27,32 @@ const PILLAR_CONFIG = [
   { key: 'tham_lam', subject: 'Thuật toán tham lam', fullSubject: 'Thuật toán tham lam' },
 ];
 
+/** Outer ring of the radar: the smallest multiple of 10% that fits every axis (at least 10%). */
+export function radarScaleMax(rates: number[]): number {
+  const highest = Math.max(0, ...rates.filter(rate => Number.isFinite(rate)));
+  return Math.min(100, Math.max(10, Math.ceil(highest / 10) * 10));
+}
+
+function shortLabel(value: string, limit: number): string {
+  return value && value.length > limit ? `${value.slice(0, limit - 1).trimEnd()}…` : value;
+}
+
+function useCompactWidth(maxWidth = 480): boolean {
+  const query = `(max-width: ${maxWidth}px)`;
+  const [compact, setCompact] = React.useState(() => typeof window !== 'undefined' && window.matchMedia?.(query).matches);
+  React.useEffect(() => {
+    const media = window.matchMedia?.(query);
+    if (!media) return;
+    const update = () => setCompact(media.matches);
+    update();
+    media.addEventListener('change', update);
+    return () => media.removeEventListener('change', update);
+  }, [query]);
+  return Boolean(compact);
+}
+
 export const BloomRadar: React.FC<BloomRadarProps> = ({ data }) => {
+  const compact = useCompactWidth();
   if (data.axes) {
     if (data.axes.length === 0) {
       return (
@@ -85,18 +110,20 @@ export const BloomRadar: React.FC<BloomRadarProps> = ({ data }) => {
     }
 
     const chartData = data.axes.map(axis => {
-      const completionRate = axis.problem_count > 0 ? Math.round((axis.ac_count / axis.problem_count) * 100) : 0;
+      const exactRate = axis.problem_count > 0 ? (axis.ac_count / axis.problem_count) * 100 : 0;
       return {
         key: axis.key,
         subject: axis.title,
         fullSubject: axis.title,
-        A: completionRate,
+        A: exactRate,
         ac_count: axis.ac_count,
         attempted_count: axis.attempted_count,
         problem_count: axis.problem_count,
-        completionRate,
+        completionRate: exactRate > 0 && exactRate < 1 ? '<1' : String(Math.round(exactRate)),
       };
     });
+    const scaleMax = radarScaleMax(chartData.map(item => item.A));
+    const hasProgress = chartData.some(item => item.ac_count > 0);
 
     return (
       <Card className="h-full flex flex-col border-border bg-card">
@@ -112,18 +139,23 @@ export const BloomRadar: React.FC<BloomRadarProps> = ({ data }) => {
         </CardHeader>
 
         <CardContent className="pt-2 pb-4 flex-1 flex flex-col items-center justify-center">
-          <div className="h-[380px] sm:h-[440px] w-full">
+          <p className="w-full text-xs text-text-secondary">
+            {hasProgress
+              ? `Tỷ lệ bài AC trên số bài của từng nhóm. Vòng ngoài cùng là ${scaleMax}%.`
+              : 'Chưa có bài AC trong khoảng thời gian này. Hãy chọn khoảng dài hơn để xem tiến độ.'}
+          </p>
+          <div className="h-[340px] sm:h-[440px] w-full">
             <ResponsiveContainer width="100%" height="100%">
-              <RadarChart cx="50%" cy="50%" outerRadius="72%" data={chartData}>
+              <RadarChart cx="50%" cy="50%" outerRadius={compact ? '58%' : '72%'} data={chartData}>
                 <PolarGrid stroke="#E2E8F0" />
                 <PolarAngleAxis
                   dataKey="subject"
                   stroke="#64748B"
-                  tick={{ fill: '#334155', fontSize: 11, fontWeight: 500 }}
-                  tickFormatter={(val: string) => (val && val.length > 20 ? `${val.slice(0, 18)}...` : val)}
+                  tick={{ fill: '#334155', fontSize: compact ? 10 : 11, fontWeight: 500 }}
+                  tickFormatter={(val: string) => shortLabel(val, compact ? 12 : 20)}
                 />
                 <PolarRadiusAxis
-                  domain={[0, 100]}
+                  domain={[0, scaleMax]}
                   axisLine={false}
                   tick={false}
                 />

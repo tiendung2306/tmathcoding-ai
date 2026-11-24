@@ -70,3 +70,6 @@ test-results/
 /.codex/
 *.pem
 *.key
+
+# Log của dev-up.command
+.dev-up.log

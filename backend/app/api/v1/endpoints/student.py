@@ -12,6 +12,7 @@ from app.schemas.student import (
     SubmissionDetailResponse,
 )
 from app.schemas.ai import CodeDoctorRequest, CodeDoctorResponse
+from app.schemas.code_doctor import DoctorApproachItem, DoctorApproachUpdate, DoctorFeedbackRequest
 from app.schemas.jobs import JobCreateResponse
 from app.schemas.analytics import StudentTagAnalyticsResponse, AICommentaryResponse
 from app.services.skill_tree_service import skill_tree_service
@@ -69,12 +70,44 @@ async def diagnose_code(
     source: SourceGateway = Depends(get_source_gateway),
     actor=Depends(get_current_user),
 ):
-    """Request Socratic AI Code Doctor diagnosis for a failed submission.
+    """Request a Code Doctor report for an AC or failed submission.
     Returns immediately with a job_id (in ~10ms) or cached result (in ~1ms).
     """
     return await code_doctor_service.diagnose_submission_async(
         req.submission_id, source, actor.profile_id, force_refresh=req.force_refresh
     )
+
+@router.get("/code-doctor/problems/{problem_id}/approaches", response_model=List[DoctorApproachItem])
+async def list_code_doctor_approaches(
+    problem_id: int,
+    source: SourceGateway = Depends(get_source_gateway),
+    actor=Depends(get_current_user),
+):
+    """Hướng giải (cụm bài AC) Code Doctor đã lưu cho một bài toán."""
+    return await code_doctor_service.list_approaches(problem_id, source, actor.profile_id)
+
+
+@router.patch("/code-doctor/approaches/{approach_id}", response_model=DoctorApproachItem)
+async def update_code_doctor_approach(
+    approach_id: int,
+    body: DoctorApproachUpdate,
+    source: SourceGateway = Depends(get_source_gateway),
+    actor=Depends(get_current_user),
+):
+    """Giảng viên đặt tên, duyệt, loại hoặc chọn hướng giải chuẩn."""
+    return await code_doctor_service.update_approach(approach_id, body, source, actor.profile_id)
+
+
+@router.post("/code-doctor/submissions/{submission_id}/feedback")
+async def submit_code_doctor_feedback(
+    submission_id: int,
+    body: DoctorFeedbackRequest,
+    source: SourceGateway = Depends(get_source_gateway),
+    actor=Depends(get_current_user),
+):
+    """Giảng viên đánh giá báo cáo Code Doctor; dùng làm bộ đánh giá chất lượng."""
+    return await code_doctor_service.submit_feedback(submission_id, body, source, actor.profile_id)
+
 
 @router.get("/submissions/failed", response_model=List[FailedSubmissionItem])
 async def get_failed_submissions(

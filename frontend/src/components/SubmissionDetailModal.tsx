@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import {
   SubmissionDetailResponseData,
   CodeDoctorDiagnosisData,
+  DoctorReportData,
 } from '../types';
 import { fetchSubmissionDetail, requestCodeDoctor, fetchJobStatus } from '../services/api';
 import {
@@ -15,6 +16,9 @@ import { Badge } from './ui/badge';
 import { Button } from './ui/button';
 import { Skeleton } from './ui/skeleton';
 import { MarkdownMath } from './MarkdownMath';
+import { CodeDoctorReport } from './CodeDoctorReport';
+import { codeLineOffset } from '../lib/codeDoctor';
+import { formatMemoryKb } from '../lib/utils';
 import {
   Code2,
   Stethoscope,
@@ -50,6 +54,10 @@ export const SubmissionDetailModal: React.FC<SubmissionDetailModalProps> = ({
 
   // AI Code Doctor diagnosis state
   const [diagnosis, setDiagnosis] = useState<CodeDoctorDiagnosisData | null>(null);
+  const [report, setReport] = useState<DoctorReportData | null>(null);
+  const [highlightLines, setHighlightLines] = useState<number[]>([]);
+  const codeScrollRef = useRef<HTMLDivElement>(null);
+  const codeSectionRef = useRef<HTMLElement>(null);
   const [diagnosing, setDiagnosing] = useState<boolean>(false);
   const [diagnosisError, setDiagnosisError] = useState<string | null>(null);
   const pollIntervalRef = useRef<any>(null);
@@ -57,7 +65,7 @@ export const SubmissionDetailModal: React.FC<SubmissionDetailModalProps> = ({
 
   const clearPolling = () => {
     if (pollIntervalRef.current) {
-      clearInterval(pollIntervalRef.current);
+      clearTimeout(pollIntervalRef.current);
       pollIntervalRef.current = null;
     }
   };
@@ -95,7 +103,15 @@ export const SubmissionDetailModal: React.FC<SubmissionDetailModalProps> = ({
     if (showDiagnosis && detail) scrollToDiagnosis();
   }, [showDiagnosis, detail]);
 
-  const runDiagnosisFor = async (id: number) => {
+  const focusLines = (lines: number[]) => {
+    if (lines.length === 0) return;
+    setHighlightLines(lines);
+    const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    codeSectionRef.current?.scrollIntoView({ block: 'nearest', behavior: reduce ? 'auto' : 'smooth' });
+    codeScrollRef.current?.scrollTo({ top: codeLineOffset(lines[0]), behavior: reduce ? 'auto' : 'smooth' });
+  };
+
+  const runDiagnosisFor = async (id: number, forceRefresh = false) => {
     const runId = ++diagnosisRunRef.current;
     clearPolling();
     setDiagnosing(true);
@@ -103,12 +119,13 @@ export const SubmissionDetailModal: React.FC<SubmissionDetailModalProps> = ({
     setShowDiagnosis(true);
     scrollToDiagnosis();
     try {
-      const initRes = await requestCodeDoctor(id, false);
+      const initRes = await requestCodeDoctor(id, forceRefresh);
       if (runId !== diagnosisRunRef.current) return;
 
       // 1. Result already available from Redis Cache
       if (initRes.status === 'COMPLETED' && initRes.result?.diagnosis) {
         setDiagnosis(initRes.result.diagnosis);
+        setReport(initRes.result.report ?? null);
         setDiagnosing(false);
         return;
       }
@@ -118,12 +135,14 @@ export const SubmissionDetailModal: React.FC<SubmissionDetailModalProps> = ({
         return;
       }
 
-      // 2. Asynchronous job started -> Poll every 2 seconds
+      // 2. Asynchronous job started -> poll every 2 seconds. A timer chain (not
+      // setInterval) guarantees one status request at a time even on a slow network.
       const jobId = initRes.job_id;
       let attempts = 0;
-      const maxAttempts = 90; // 180s max for the local CPU model
+      // Server-side budget: queue wait plus the 145s Code Doctor deadline.
+      const deadline = Date.now() + 300_000;
 
-      pollIntervalRef.current = setInterval(async () => {
+      const poll = async () => {
         if (runId !== diagnosisRunRef.current) return;
         attempts += 1;
         try {
@@ -134,29 +153,34 @@ export const SubmissionDetailModal: React.FC<SubmissionDetailModalProps> = ({
             clearPolling();
             if (jobRes.result?.diagnosis) {
               setDiagnosis(jobRes.result.diagnosis);
+              setReport(jobRes.result.report ?? null);
             } else {
               setDiagnosisError('Máy chủ chưa trả kết quả chẩn đoán. Vui lòng thử lại.');
             }
             setDiagnosing(false);
-          } else if (jobRes.status === 'FAILED') {
+            return;
+          }
+          if (jobRes.status === 'FAILED') {
             clearPolling();
             setDiagnosisError(jobRes.error || 'Tác vụ chẩn đoán không thành công. Vui lòng thử lại.');
             setDiagnosing(false);
-          } else if (attempts >= maxAttempts) {
-            clearPolling();
-            setDiagnosisError('Thời gian chẩn đoán vượt quá giới hạn cho phép. Vui lòng bấm thử lại.');
-            setDiagnosing(false);
+            return;
           }
         } catch (pollErr: any) {
           if (runId !== diagnosisRunRef.current) return;
           console.error('Polling error:', pollErr);
-          if (attempts >= maxAttempts) {
-            clearPolling();
-            setDiagnosisError('Không thể kết nối đến máy chủ để lấy kết quả chẩn đoán.');
-            setDiagnosing(false);
-          }
         }
-      }, 2000);
+        if (Date.now() >= deadline) {
+          clearPolling();
+          setDiagnosisError(attempts > 0
+            ? 'Thời gian chẩn đoán vượt quá giới hạn cho phép. Vui lòng bấm thử lại.'
+            : 'Không thể kết nối đến máy chủ để lấy kết quả chẩn đoán.');
+          setDiagnosing(false);
+          return;
+        }
+        pollIntervalRef.current = setTimeout(poll, 2000);
+      };
+      pollIntervalRef.current = setTimeout(poll, 2000);
     } catch (err: any) {
       if (runId !== diagnosisRunRef.current) return;
       console.error(err);
@@ -175,6 +199,8 @@ export const SubmissionDetailModal: React.FC<SubmissionDetailModalProps> = ({
       setShowDiagnosis(false);
       setSelectedCaseIndex(0);
       setDiagnosis(null);
+      setReport(null);
+      setHighlightLines([]);
       setDiagnosisError(null);
       if (initialTab === 'diagnosis') {
         runDiagnosisFor(submissionId);
@@ -183,6 +209,8 @@ export const SubmissionDetailModal: React.FC<SubmissionDetailModalProps> = ({
       setDetail(null);
       setError(null);
       setDiagnosis(null);
+      setReport(null);
+      setHighlightLines([]);
       setDiagnosisError(null);
       setShowDiagnosis(false);
     }
@@ -227,13 +255,7 @@ export const SubmissionDetailModal: React.FC<SubmissionDetailModalProps> = ({
     }
   };
 
-  const formatMemory = (kb: number | null | undefined) => {
-    if (kb === null || kb === undefined) return 'N/A';
-    if (kb >= 1024) {
-      return `${(kb / 1024).toFixed(1)} MB`;
-    }
-    return `${kb} KB`;
-  };
+  const formatMemory = formatMemoryKb;
 
   const getVerdictBadge = (status: string) => {
     const passed = status === 'AC';
@@ -334,7 +356,7 @@ export const SubmissionDetailModal: React.FC<SubmissionDetailModalProps> = ({
                         </div>
                         <div className="flex flex-wrap gap-x-5 gap-y-1 text-xs text-text-secondary sm:text-sm">
                           <span>Giới hạn thời gian <strong className="font-mono font-medium text-text-primary">{detail.time_limit} giây</strong></span>
-                          <span>Giới hạn bộ nhớ <strong className="font-mono font-medium text-text-primary">{detail.memory_limit} MB</strong></span>
+                          <span>Giới hạn bộ nhớ <strong className="font-mono font-medium text-text-primary">{formatMemoryKb(detail.memory_limit)}</strong></span>
                         </div>
                       </div>
 
@@ -354,7 +376,7 @@ export const SubmissionDetailModal: React.FC<SubmissionDetailModalProps> = ({
                   </section>
 
                   <div className="grid min-h-0 min-w-0 gap-2 lg:grid-rows-[minmax(0,1fr)_minmax(180px,0.48fr)]">
-                    <section aria-label="Mã nguồn" className="flex min-h-0 min-w-0 flex-col overflow-hidden rounded-md border-2 border-white bg-black">
+                    <section ref={codeSectionRef} aria-label="Mã nguồn" className="flex min-h-0 min-w-0 flex-col overflow-hidden rounded-md border-2 border-white bg-black">
                       <div className="flex shrink-0 items-center justify-between border-b border-white bg-black px-3 py-2">
                         <div className="flex items-center gap-2">
                           <Code2 className="h-4 w-4 text-white" />
@@ -380,10 +402,15 @@ export const SubmissionDetailModal: React.FC<SubmissionDetailModalProps> = ({
                         </Button>
                       </div>
 
-                      <div tabIndex={0} aria-label="Nội dung mã nguồn" className="submission-source max-h-[45dvh] min-h-0 flex-1 overflow-auto bg-black p-3 font-mono text-[13px] leading-6 text-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-white lg:max-h-none">
-                        <div className="flex min-w-max">
+                      <div ref={codeScrollRef} tabIndex={0} aria-label="Nội dung mã nguồn" className="submission-source max-h-[45dvh] min-h-0 flex-1 overflow-auto bg-black p-3 font-mono text-[13px] leading-6 text-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-white lg:max-h-none">
+                        <div className="relative flex min-w-max">
+                          {highlightLines.map((line) => (
+                            <div key={line} aria-hidden="true" className="pointer-events-none absolute inset-x-0 h-6 border-l-2 border-amber-400 bg-amber-300/20" style={{ top: (line - 1) * 24 }} />
+                          ))}
                           <div aria-hidden="true" className="select-none border-r border-white/20 pr-3 text-right text-xs text-slate-400">
-                            {Array.from({ length: codeLineCount }, (_, index) => <div key={index} className="h-6">{index + 1}</div>)}
+                            {Array.from({ length: codeLineCount }, (_, index) => (
+                              <div key={index} className={`h-6 ${highlightLines.includes(index + 1) ? 'font-semibold text-amber-300' : ''}`}>{index + 1}</div>
+                            ))}
                           </div>
                           <pre className="m-0 pl-3 font-mono leading-6"><code className="hljs">{highlightedCode === null ? detail.source_code : <span dangerouslySetInnerHTML={{ __html: highlightedCode }} />}</code></pre>
                         </div>
@@ -464,6 +491,14 @@ export const SubmissionDetailModal: React.FC<SubmissionDetailModalProps> = ({
                         </Button>
                       </div>
                     </div>
+                  ) : diagnosis && report ? (
+                    <CodeDoctorReport
+                      submissionId={detail.submission_id}
+                      report={report}
+                      lineCount={codeLineCount}
+                      onFocusLines={focusLines}
+                      onReanalyze={() => submissionId && runDiagnosisFor(submissionId, true)}
+                    />
                   ) : diagnosis ? (
                     <div className="rounded-md border border-border bg-card p-4 sm:p-5">
                       <h3 className="border-b border-border pb-3 text-base font-semibold text-text-primary">

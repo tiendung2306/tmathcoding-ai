@@ -5,6 +5,8 @@ from datetime import datetime
 class ContestOrganization(BaseModel):
     id: int
     name: str
+    member_count: int = 0
+    has_active_contest: bool = False
 
 class StudentSearchItem(BaseModel):
     user_id: int
@@ -27,6 +29,14 @@ class StudentPage(BaseModel):
     score_metric: str = "source"
     score_run_id: Optional[str] = None
     score_as_of: Optional[datetime] = None
+
+class ContestStudentItem(BaseModel):
+    user_id: int
+    name: str
+    username: str
+    avatar_url: Optional[str] = None
+    class_ids: List[int] = []
+
 
 class ClassStudentItem(BaseModel):
     user_id: int

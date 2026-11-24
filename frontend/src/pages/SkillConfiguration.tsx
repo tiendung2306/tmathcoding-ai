@@ -174,6 +174,9 @@ export function SkillConfiguration() {
       {state && <div className="text-right text-xs text-text-secondary space-y-1"><p>{state.has_published ? 'Cấu hình đang áp dụng' : 'Chưa áp dụng cấu hình'}</p><p>Chọn nhóm hoặc kéo tag để lưu ngay.</p></div>}
     </header>
     <div className="skill-policy"><strong className="text-text-primary">Nhóm có bài mới xuất hiện trên dashboard.</strong> Nhóm không có bài trong các tag sẽ được ẩn. Học sinh chưa làm bài vẫn thấy nhóm. Tag chưa phân loại được gom vào Khác khi áp dụng.</div>
+    {state?.stale_tag_ids?.length ? <div role="status" className="rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+      {state.stale_tag_ids.length} tag đã bị xóa khỏi dữ liệu nguồn (ID: {state.stale_tag_ids.slice(0, 10).join(', ')}{state.stale_tag_ids.length > 10 ? '…' : ''}). Trang học sinh vẫn hoạt động và bỏ qua các tag này; hãy lưu cấu hình để loại chúng khỏi bản lưu.
+    </div> : null}
     {error && !proposalOpen && <div role="alert" className="skill-error">{error}<button className="skill-text-button ml-2" disabled={!!busy} onClick={() => void load()}>Tải lại cấu hình</button></div>}
     <p aria-live="polite" role="status" className="text-xs text-text-secondary min-h-4">{busy || aiProgress || message}</p>
     {loading ? <p role="status" className="skill-panel p-8">Đang tải cây và danh mục tag...</p> : state && <>

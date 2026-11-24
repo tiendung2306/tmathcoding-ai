@@ -20,7 +20,7 @@ from sqlalchemy.orm import Session
 
 from .database import get_session_factory
 from .models import (
-    contest, contest_author, contest_curator, contest_organization,
+    contest, contest_author, contest_curator, contest_organization, contest_problem,
     language, organization, organization_admin, problem, problem_group, problem_type,
     problem_type_catalog, profile, profile_organization, school_year, submission,
     submission_source, submission_testcase, user,
@@ -35,6 +35,7 @@ from .schemas import (
     SubmissionChange, SubmissionChangesPage, SubmissionDetail, SubmissionItem,
     SubmissionPage, StudentSubmissionSample, StudentSubmissionSamplesResponse,
     StudentAlertsRequest, StudentAlertsResponse, StudentAlertItem, TestcaseItem,
+    ContestProblem, ContestProblemList,
 )
 
 app = FastAPI(title="tmathcoding Source API Mock", version="1.0.0", openapi_url="/integration/v1/openapi.json")
@@ -1059,6 +1060,26 @@ def teacher_contest_detail_route(
     if profile_row(db, profile_id) is None:
         raise HTTPException(404, {"code": "not_found", "message": "Profile not found"})
     return teacher_contest_detail(db, profile_id, actor_id, contest_id, as_utc(utc_now()))
+
+
+@app.get(f"{API_PREFIX}/contests/{{contest_id}}/problems", response_model=ContestProblemList,
+         responses={**COMMON_ERROR_RESPONSES, **error_responses(404)})
+def contest_problems(contest_id: int, db: Session = Depends(get_db), actor_id: int = Depends(actor_profile_id)):
+    """Problems of a contest in contest order (judge_contestproblem)."""
+    teacher_contest_detail(db, actor_id, actor_id, contest_id, as_utc(utc_now()))
+    rows = db.execute(
+        select(contest_problem.c.problem_id, contest_problem.c.order, contest_problem.c.points,
+               contest_problem.c.partial, problem.c.code, problem.c.name, problem.c.points.label("problem_points"))
+        .select_from(contest_problem.join(problem, problem.c.id == contest_problem.c.problem_id))
+        .where(contest_problem.c.contest_id == contest_id)
+        .order_by(contest_problem.c.order, contest_problem.c.id)
+    ).mappings().all()
+    return ContestProblemList(items=[ContestProblem(
+        problem_id=row["problem_id"], code=row["code"] or f"P{row['problem_id']}",
+        title=row["name"] or row["code"] or f"Problem {row['problem_id']}",
+        order=row["order"], points=row["points"], problem_points=row["problem_points"],
+        partial=row["partial"] is None or bool(row["partial"]),
+    ) for row in rows], as_of=utc_now())
 
 
 @app.get(f"{API_PREFIX}/classes/{{class_id}}/contests", response_model=ContestPage,

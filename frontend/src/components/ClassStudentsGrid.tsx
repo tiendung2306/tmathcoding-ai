@@ -177,8 +177,6 @@ export const ClassStudentsGrid: React.FC<ClassStudentsGridProps> = ({
 
   return (
     <div className="p-3.5 sm:p-5 lg:p-6 max-w-7xl mx-auto space-y-4">
-      <p className="text-xs text-text-secondary">Lớp #{classId}</p>
-
       {/* Class Title Header */}
       <Card className="bg-card border-border">
         <CardContent className="p-4 sm:p-5 flex flex-col md:flex-row md:items-center justify-between gap-4">
@@ -187,12 +185,12 @@ export const ClassStudentsGrid: React.FC<ClassStudentsGridProps> = ({
               <h1 className="text-lg sm:text-xl font-bold text-text-primary tracking-tight">
                 {classNameTitle}
               </h1>
-              <Badge variant="outline" className="text-[10px] font-mono">
+              <Badge variant="outline" className="font-sans text-[11px]">
                 {students.length} học sinh
               </Badge>
             </div>
             <p className="text-xs text-text-secondary">
-              Bấm vào học sinh để xem biểu đồ năng lực đa chiều và gợi ý ôn tập AI
+              Bấm vào học sinh để xem biểu đồ năng lực và gợi ý ôn tập AI
             </p>
           </div>
 
@@ -223,7 +221,7 @@ export const ClassStudentsGrid: React.FC<ClassStudentsGridProps> = ({
                   Điểm số
                 </option>
                 <option value="problems" className="bg-card text-text-primary">
-                  Số bài nộp
+                  Số bài đã giải
                 </option>
                 <option value="name" className="bg-card text-text-primary">
                   Tên học sinh
@@ -350,13 +348,13 @@ export const ClassStudentsGrid: React.FC<ClassStudentsGridProps> = ({
                 {/* Score & Submissions */}
                 <div className="grid grid-cols-2 gap-1.5 text-xs">
                   <div className="bg-card-subtle/80 px-2 py-1 rounded border border-border/40">
-                    <span className="text-[10px] text-text-secondary block">{st.score_metric === 'achievement' ? 'Điểm thành tích' : 'Điểm nguồn'}</span>
+                    <span className="text-[10px] text-text-secondary block">{st.score_metric === 'achievement' ? 'Điểm thành tích' : 'Điểm'}</span>
                     <span className="font-mono font-bold text-text-primary text-xs">
                       {st.points.toLocaleString('vi-VN')}
                     </span>
                   </div>
                   <div className="bg-card-subtle/80 px-2 py-1 rounded border border-border/40">
-                    <span className="text-[10px] text-text-secondary block">Bài nộp</span>
+                    <span className="text-[10px] text-text-secondary block">Bài đã giải</span>
                     <span className="font-mono font-semibold text-text-primary text-xs">
                       {st.problem_count}
                     </span>
@@ -372,7 +370,7 @@ export const ClassStudentsGrid: React.FC<ClassStudentsGridProps> = ({
               </div>
 
               <div className="pt-2.5 mt-3 border-t border-border/50 flex items-center justify-between text-[11px] text-text-tertiary group-hover:text-brand-primary transition-colors">
-                <span>Xem chi tiết số liệu</span>
+                <span>Xem hồ sơ học sinh</span>
                 <ChevronRight className="w-3.5 h-3.5 transform group-hover:translate-x-0.5 transition-transform" />
               </div>
             </Link>

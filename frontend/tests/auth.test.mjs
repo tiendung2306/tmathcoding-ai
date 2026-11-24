@@ -120,6 +120,13 @@ test('ordinary forbidden responses neither retry writes nor end the session', as
   assert.equal(redirects.length, 0);
 });
 
+test('a first visit without a session is not told that a session expired', async () => {
+  cookie = null;
+  await assert.rejects(getAccount());
+  await flush();
+  assert.equal(redirects.length, 0);
+});
+
 test('401 from a data API clears cached data and preserves the full return URL', async () => {
   await login('admin', 'test-only-password');
   queryClient.setQueryData(['private-data'], ['cached']);
@@ -128,6 +135,7 @@ test('401 from a data API clears cached data and preserves the full return URL',
   assert.equal(queryClient.getQueryCache().getAll().length, 0);
   assert.equal(redirects.length, 1);
   const target = new URL(redirects[0], 'http://localhost');
+  assert.equal(target.pathname, '/login');
   assert.equal(target.searchParams.get('next'), '/admin?page=2#jobs');
   assert.equal(target.searchParams.get('reason'), 'session-expired');
 });

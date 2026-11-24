@@ -2,7 +2,7 @@ import asyncio
 import json
 import logging
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any, Callable, Coroutine, Dict, Optional, Set, Tuple
 
 from app.core.redis import cache_delete, cache_get, cache_set, get_redis_client
@@ -33,6 +33,9 @@ class LLMJobManager:
     def __init__(self, max_concurrency: int = 2):
         self._semaphore = asyncio.Semaphore(max_concurrency)
         self._sweeper_task: Optional[asyncio.Task] = None
+        # The event loop keeps only weak references to tasks; hold running jobs here
+        # so they cannot be garbage-collected mid-flight.
+        self._running_tasks: Set[asyncio.Task] = set()
 
         # In-memory fallbacks if Redis is down
         self._mem_jobs: Dict[str, dict] = {}
@@ -63,6 +66,9 @@ class LLMJobManager:
         saved = await cache_set(self._job_key(job_id), json_str, expire=expire)
         if not saved:
             self._mem_jobs[job_id] = record
+            # Bound the fallback store while Redis is unavailable.
+            while len(self._mem_jobs) > 500:
+                self._mem_jobs.pop(next(iter(self._mem_jobs)))
 
     async def _get_job_record(self, job_id: str) -> Optional[dict]:
         json_str = await cache_get(self._job_key(job_id))
@@ -125,9 +131,14 @@ class LLMJobManager:
                 if existing_record:
                     status = existing_record.get("status")
                     if status in [JobStatus.PENDING, JobStatus.PROCESSING]:
-                        # Check if it didn't exceed deadline
-                        deadline_str = existing_record.get("deadline_at")
-                        deadline_dt = _parse_iso(deadline_str)
+                        # A processing job has a deadline; a queued job may wait behind
+                        # the concurrency limit, but not forever (e.g. its worker died).
+                        deadline_dt = _parse_iso(existing_record.get("deadline_at"))
+                        if deadline_dt is None and status == JobStatus.PENDING:
+                            created_dt = _parse_iso(existing_record.get("created_at"))
+                            if created_dt is not None:
+                                deadline_dt = created_dt + timedelta(
+                                    seconds=self._queue_wait_limit(existing_record.get("timeout_seconds", timeout_seconds)))
                         if not deadline_dt or datetime.now(timezone.utc) <= deadline_dt:
                             logger.info(f"Reusing active job '{existing_job_id}' for {job_type}:{entity_key}")
                             return existing_job_id, False
@@ -162,10 +173,15 @@ class LLMJobManager:
 
         if entity_key:
             ref_k = self._ref_key(job_type, entity_key)
-            await cache_set(ref_k, job_id, expire=timeout_seconds + 60)
+            # Cover queue wait plus execution so a queued job is not duplicated.
+            await cache_set(ref_k, job_id, expire=self._queue_wait_limit(timeout_seconds) + timeout_seconds + 60)
             self._mem_refs[ref_k] = job_id
 
         return job_id, True
+
+    @staticmethod
+    def _queue_wait_limit(timeout_seconds: int) -> int:
+        return max(60, int(timeout_seconds) * 3)
 
     async def get_job(self, job_id: str) -> Optional[JobStatusResponse]:
         """Retrieves a job. TIER 1: Performs Lazy Dead Job Check on read."""
@@ -287,9 +303,11 @@ class LLMJobManager:
         )
 
         if is_new:
-            asyncio.create_task(
+            task = asyncio.create_task(
                 self._run_job_wrapper(job_id, task_func, timeout_seconds, *args, **kwargs)
             )
+            self._running_tasks.add(task)
+            task.add_done_callback(self._running_tasks.discard)
 
         return job_id, is_new
 

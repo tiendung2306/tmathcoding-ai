@@ -63,7 +63,7 @@ services:
       DASHBOARD_MIGRATION_USER: ${DASHBOARD_MIGRATION_USER:-tmath_dashboard_migrator}
       DASHBOARD_MIGRATION_PASSWORD: ${DASHBOARD_MIGRATION_PASSWORD:?Set DASHBOARD_MIGRATION_PASSWORD}
     ports:
-      - "${DASHBOARD_DB_PUBLISHED_PORT:-3307}:3306"
+      - "127.0.0.1:${DASHBOARD_DB_PUBLISHED_PORT:-3307}:3306"
     volumes:
       - dashboard_mysql:/var/lib/mysql
       - ./docker/mysql/init-users.sh:/docker-entrypoint-initdb.d/10-users.sh:ro
@@ -155,7 +155,8 @@ services:
     container_name: tmath-redis
     restart: always
     ports:
-      - "${REDIS_PORT:-6379}:6379"
+      # Redis has no password here; publish it on this machine only.
+      - "127.0.0.1:${REDIS_PORT:-6379}:6379"
     networks:
       - dashboard
 
@@ -167,7 +168,7 @@ services:
     environment:
       - OLLAMA_CONTEXT_LENGTH=${LLM_CONTEXT_WINDOW:-8192}
     ports:
-      - "11434:11434"
+      - "127.0.0.1:11434:11434"
     volumes:
       - ollama_data:/root/.ollama
     networks:
@@ -198,6 +199,8 @@ services:
     image: tmath-dashboard-backend
     container_name: tmath-backend
     restart: always
+    # Local development keeps hot reload; the image default runs without it.
+    command: [uvicorn, app.main:app, --host, 0.0.0.0, --port, "8000", --reload]
     environment: &dashboard-runtime-environment
       PROJECT_NAME: ${PROJECT_NAME:-tmath-dashboard}
       API_V1_STR: ${API_V1_STR:-/api/v1}
@@ -205,6 +208,7 @@ services:
       SOURCE_API_BASE_URL: ${SOURCE_API_BASE_URL:?Set SOURCE_API_BASE_URL}
       SOURCE_API_TOKEN: ${SOURCE_API_TOKEN:?Set SOURCE_API_TOKEN}
       SOURCE_API_TIMEOUT_SECONDS: ${SOURCE_API_TIMEOUT_SECONDS:-8}
+      SOURCE_ACCESS_CACHE_SECONDS: ${SOURCE_ACCESS_CACHE_SECONDS:-0}
       DASHBOARD_DB_HOST: dashboard-db
       DASHBOARD_DB_PORT: "3306"
       DASHBOARD_DB_NAME: ${DASHBOARD_DB_NAME:-tmath_dashboard}
@@ -222,6 +226,13 @@ services:
       LLM_TOP_P: ${LLM_TOP_P:-0.95}
       LLM_CONTEXT_WINDOW: ${LLM_CONTEXT_WINDOW:-8192}
       LLM_REQUEST_TIMEOUT_SECONDS: ${LLM_REQUEST_TIMEOUT_SECONDS:-240}
+      DOCTOR_LLM_PROVIDER: ${DOCTOR_LLM_PROVIDER:-}
+      DOCTOR_LLM_BASE_URL: ${DOCTOR_LLM_BASE_URL:-}
+      DOCTOR_LLM_API_KEY: ${DOCTOR_LLM_API_KEY:-}
+      DOCTOR_LLM_MODEL: ${DOCTOR_LLM_MODEL:-}
+      DOCTOR_LLM_CONTEXT_WINDOW: ${DOCTOR_LLM_CONTEXT_WINDOW:-0}
+      DOCTOR_LLM_MAX_TOKENS: ${DOCTOR_LLM_MAX_TOKENS:-1800}
+      DOCTOR_LLM_TIMEOUT_SECONDS: ${DOCTOR_LLM_TIMEOUT_SECONDS:-150}
       CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:5173}
     ports:
       - "8000:8000"
@@ -265,6 +276,7 @@ services:
     build:
       context: ./frontend
       dockerfile: Dockerfile
+      target: dev
     container_name: tmath-frontend
     restart: always
     environment:

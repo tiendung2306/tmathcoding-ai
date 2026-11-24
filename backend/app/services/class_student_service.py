@@ -13,7 +13,7 @@ _CACHE_MAX_ENTRIES = 128
 
 @dataclass
 class _RosterCache:
-    updated_at: float
+    loaded_at: float
     students: list[SourceStudent] | None = None
     lock: asyncio.Lock = field(default_factory=asyncio.Lock)
 
@@ -21,18 +21,24 @@ class _RosterCache:
 _roster_cache: OrderedDict[tuple[int, int], _RosterCache] = OrderedDict()
 
 
+def reset_roster_cache() -> None:
+    """Drop every cached roster (tests and operator tooling)."""
+    _roster_cache.clear()
+
+
 def _get_cache(key: tuple[int, int], now: float) -> _RosterCache:
+    # Expiry is absolute from load time: reads must not extend a roster's lifetime,
+    # otherwise a class that is polled continuously would never see roster changes.
     expired = [
         cache_key for cache_key, entry in _roster_cache.items()
-        if now - entry.updated_at >= _CACHE_TTL_SECONDS
+        if entry.students is not None and now - entry.loaded_at >= _CACHE_TTL_SECONDS
     ]
     for cache_key in expired:
         _roster_cache.pop(cache_key, None)
 
     entry = _roster_cache.pop(key, None)
     if entry is None:
-        entry = _RosterCache(updated_at=now)
-    entry.updated_at = now
+        entry = _RosterCache(loaded_at=now)
     _roster_cache[key] = entry
     while len(_roster_cache) > _CACHE_MAX_ENTRIES:
         _roster_cache.popitem(last=False)
@@ -70,6 +76,7 @@ async def get_class_students(
             students.extend(page.items)
             if not page.has_more:
                 cache.students = students
+                cache.loaded_at = time.monotonic()
                 return students
             cursor = page.next_cursor
             if not cursor or cursor in seen_cursors:

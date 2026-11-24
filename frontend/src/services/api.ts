@@ -3,21 +3,20 @@ import type { SkillPage, SkillProblem, SkillProblemDetail } from '../types';
 import {
   TimeRange,
   SkillTreeResponseData,
-  ClassHeatmapResponseData,
   TagAnalyticsResponseData,
   AICommentaryResponseData,
-  StudentDetailResponseData,
-  ClassStudentItemData,
   StudentSubmissionHistoryPageData,
   AutoTagStatusResponseData,
   AutoTagBatchRunResponseData,
   SubmissionDetailResponseData,
   JobCreateResponseData,
+  DoctorFeedbackRating,
   JobStatusResponseData,
   TeacherContestPageData,
   TeacherContestData,
   ContestLiveSubmissionsData,
   ContestOrganizationData,
+  ContestStudentData,
 } from '../types';
 
 const API_BASE_URL = '/api/v1';
@@ -67,6 +66,12 @@ export const requestCodeDoctor = async (submissionId: number, forceRefresh: bool
   return res.data;
 };
 
+export const submitCodeDoctorFeedback = async (
+  submissionId: number, rating: DoctorFeedbackRating, note?: string,
+): Promise<void> => {
+  await apiClient.post(`${API_BASE_URL}/student/code-doctor/submissions/${submissionId}/feedback`, { rating, note });
+};
+
 export const fetchJobStatus = async (jobId: string): Promise<JobStatusResponseData> => {
   const res = await apiClient.get(`${API_BASE_URL}/jobs/${jobId}`);
   return res.data;
@@ -78,7 +83,7 @@ export const fetchSubmissionDetail = async (submissionId: number): Promise<Submi
 };
 
 export async function fetchTeacherContests(params: {
-  state: 'active' | 'ended';
+  state: 'active' | 'upcoming' | 'ended';
   q?: string;
   cursor?: string | null;
   limit?: number;
@@ -94,9 +99,9 @@ export async function fetchTeacherContest(contestId: number, signal?: AbortSigna
   })).data;
 }
 
-export async function fetchContestLiveSubmissions(contestId: number, signal?: AbortSignal): Promise<ContestLiveSubmissionsData> {
+export async function fetchContestLiveSubmissions(contestId: number, classId?: number | null, signal?: AbortSignal): Promise<ContestLiveSubmissionsData> {
   return (await apiClient.get<ContestLiveSubmissionsData>(`${API_BASE_URL}/virtual-class/contests/${contestId}/live-submissions`, {
-    signal, timeout: 30_000,
+    params: classId ? { class_id: classId } : {}, signal, timeout: 30_000,
   })).data;
 }
 
@@ -105,30 +110,6 @@ export async function fetchContestOrganizations(signal?: AbortSignal): Promise<C
     signal, timeout: 30_000,
   })).data;
 }
-
-export const fetchClassHeatmap = async (orgId: number, timeRange: TimeRange = 'all'): Promise<ClassHeatmapResponseData> => {
-  const res = await apiClient.get(`${API_BASE_URL}/teacher/class/${orgId}/heatmap`, {
-    params: { time_range: timeRange }
-  });
-  return res.data;
-};
-
-export const searchStudents = async (query: string) => {
-  const res = await apiClient.get(`${API_BASE_URL}/teacher/students/search?q=${encodeURIComponent(query)}`);
-  return res.data;
-};
-
-export const fetchStudentDetail = async (studentId: number, timeRange: TimeRange = 'all'): Promise<StudentDetailResponseData> => {
-  const res = await apiClient.get(`${API_BASE_URL}/teacher/students/${studentId}/detail`, {
-    params: { time_range: timeRange }
-  });
-  return res.data;
-};
-
-export const fetchClassStudents = async (orgId: number): Promise<ClassStudentItemData[]> => {
-  const res = await apiClient.get(`${API_BASE_URL}/teacher/classes/${orgId}/students`);
-  return res.data;
-};
 
 export const fetchStudentSubmissionHistory = async (
   userId: number,
@@ -154,20 +135,9 @@ export const runAutoTagBatch = async (batchSize: number = 10): Promise<AutoTagBa
 };
 
 
-// Virtual Class API
-export const getVirtualClassSessions = async (orgId: number) => {
-  const res = await apiClient.get(`${API_BASE_URL}/virtual-class/${orgId}/sessions`);
-  return res.data;
-};
-
-export const stopVirtualClass = async (sessionId: number) => {
-  const res = await apiClient.post(`${API_BASE_URL}/virtual-class/sessions/${sessionId}/stop`);
-  return res.data;
-};
-
-export const fetchLiveSubmissions = async (sessionId: number, cursor: string | null = null, signal?: AbortSignal) => {
-  const res = await apiClient.get(`${API_BASE_URL}/virtual-class/sessions/${sessionId}/live-submissions`, {
-    params: cursor ? { cursor } : {}, signal,
-  });
-  return res.data;
-};
+// Class sessions ("phiên học") are contests mapped to a class in the Source API.
+export async function fetchContestStudents(contestId: number, classId?: number | null, signal?: AbortSignal): Promise<ContestStudentData[]> {
+  return (await apiClient.get<ContestStudentData[]>(`${API_BASE_URL}/teacher/my-contests/${contestId}/students`, {
+    params: classId ? { class_id: classId } : {}, signal, timeout: 30_000,
+  })).data;
+}

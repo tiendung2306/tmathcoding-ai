@@ -27,6 +27,19 @@ export interface StudentPageData {
   score_as_of?: string;
 }
 
+interface StarredStudent { id: number; name: string }
+
+function readStarred(key: string): StarredStudent[] {
+  try {
+    const saved = JSON.parse(window.localStorage.getItem(key) || '[]');
+    if (!Array.isArray(saved)) return [];
+    // Older versions stored bare IDs.
+    return saved.flatMap(item => typeof item === 'number'
+      ? Number.isSafeInteger(item) && item > 0 ? [{ id: item, name: '' }] : []
+      : item && Number.isSafeInteger(item.id) && item.id > 0 ? [{ id: item.id, name: String(item.name || '') }] : []);
+  } catch { return []; }
+}
+
 export function StudentsPage() {
   const data = useLoaderData() as StudentPageData;
   const account = useRouteLoaderData('app') as AuthAccount;
@@ -39,22 +52,34 @@ export function StudentsPage() {
   const sortingByName = sort === 'name' || sort === 'name_desc';
   const [search, setSearch] = useState(query);
   const storageKey = `tmath:student-stars:${account.id}`;
-  const [starredIds, setStarredIds] = useState<number[]>(() => {
-    try {
-      const saved = JSON.parse(window.localStorage.getItem(storageKey) || '[]');
-      return Array.isArray(saved) ? saved.filter((id): id is number => Number.isSafeInteger(id) && id > 0) : [];
-    } catch { return []; }
-  });
-  const starredSet = useMemo(() => new Set(starredIds), [starredIds]);
-  const visibleStudents = useMemo(() => [...data.items].sort((a, b) => Number(starredSet.has(b.user_id)) - Number(starredSet.has(a.user_id))), [data.items, starredSet]);
+  // Starred students are kept across pages (id + last seen name) and listed above the
+  // table; rows stay in ranking order so the rank column remains meaningful.
+  const [starred, setStarred] = useState<StarredStudent[]>(() => readStarred(storageKey));
+  const starredSet = useMemo(() => new Set(starred.map(item => item.id)), [starred]);
+  const visibleStudents = data.items;
 
-  const toggleStar = (userId: number) => {
-    setStarredIds(previous => {
-      const next = previous.includes(userId) ? previous.filter(id => id !== userId) : [...previous, userId];
-      try { window.localStorage.setItem(storageKey, JSON.stringify(next)); } catch { /* Sorting still works for this visit. */ }
-      return next;
-    });
+  const saveStarred = (next: StarredStudent[]) => {
+    try { window.localStorage.setItem(storageKey, JSON.stringify(next)); } catch { /* Kept for this visit only. */ }
+    return next;
   };
+  const toggleStar = (userId: number, name: string) => {
+    setStarred(previous => saveStarred(previous.some(item => item.id === userId)
+      ? previous.filter(item => item.id !== userId)
+      : [...previous, { id: userId, name }]));
+  };
+  useEffect(() => {
+    // Refresh stored names for starred students visible on this page.
+    setStarred(previous => {
+      let changed = false;
+      const next = previous.map(item => {
+        const row = data.items.find(student => student.user_id === item.id);
+        if (row && row.name !== item.name) { changed = true; return { ...item, name: row.name }; }
+        return item;
+      });
+      return changed ? saveStarred(next) : previous;
+    });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data.items]);
 
   const changeSort = (field: 'name' | 'points') => {
     const value = field === 'name'
@@ -113,16 +138,23 @@ export function StudentsPage() {
         </button>
       </form>
     </div>
+    {starred.length > 0 && <section aria-label="Học sinh đánh dấu sao" className="flex flex-wrap items-center gap-2 rounded-md border border-amber-200 bg-amber-50/60 px-3 py-2">
+      <span className="flex items-center gap-1.5 text-sm font-medium text-amber-800"><Star aria-hidden className="size-4 fill-amber-500 text-amber-600" />Đánh dấu sao</span>
+      {starred.map(item => <span key={item.id} className="inline-flex items-center overflow-hidden rounded-full border border-amber-200 bg-card text-sm">
+        <Link to={`/student/students/${item.id}`} state={{ from: returnTo }} className="px-3 py-1 text-text-primary hover:underline">{item.name || `Học sinh ${item.id}`}</Link>
+        <button type="button" onClick={() => toggleStar(item.id, item.name)} aria-label={`Bỏ sao ${item.name}`} className="px-2 py-1 text-text-tertiary hover:bg-amber-100 hover:text-text-primary">×</button>
+      </span>)}
+    </section>}
     {data.score_metric === 'achievement' && <p className="text-sm text-text-secondary">Xếp theo điểm thành tích toàn bộ lịch sử. Dữ liệu đến {scoreDate(data.score_as_of ?? null)}.</p>}
     <div className="overflow-x-auto rounded-md border border-border bg-card">
       <table className="w-full table-fixed text-left text-sm">
-        <caption className="sr-only">Danh sách học sinh; học sinh đánh dấu sao được đưa lên đầu trang đang xem</caption>
+        <caption className="sr-only">Danh sách học sinh theo thứ hạng; học sinh đánh dấu sao được tô nền và liệt kê phía trên bảng</caption>
         <thead className="border-b border-border bg-card-subtle text-text-secondary"><tr>
           <th scope="col" className="w-12 px-1 text-center font-medium"><span className="sr-only">Đánh dấu sao</span></th>
           <th scope="col" className="w-14 px-1 text-center font-medium sm:w-20">{sortingByName ? 'STT' : 'Hạng'}</th>
           <th scope="col" className="w-12 font-medium"><span className="sr-only">Ảnh đại diện</span></th>
           <th scope="col" aria-sort={sortingByName ? sort === 'name' ? 'ascending' : 'descending' : 'none'} className="p-0 font-medium">
-            <button type="button" onClick={() => changeSort('name')} className={`flex min-h-11 w-full items-center gap-1 px-2 text-left transition-colors hover:bg-card-hover hover:text-brand-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand-primary sm:pl-5 sm:pr-3 ${sortingByName ? 'font-semibold text-text-primary' : ''}`} aria-label={`Sắp xếp theo tên học sinh ${sort === 'name' ? 'giảm' : 'tăng'} dần`}>Tên truy cập <span aria-hidden>{sortingByName ? sort === 'name' ? '↑' : '↓' : ''}</span></button>
+            <button type="button" onClick={() => changeSort('name')} className={`flex min-h-11 w-full items-center gap-1 px-2 text-left transition-colors hover:bg-card-hover hover:text-brand-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand-primary sm:pl-5 sm:pr-3 ${sortingByName ? 'font-semibold text-text-primary' : ''}`} aria-label={`Sắp xếp theo tên học sinh ${sort === 'name' ? 'giảm' : 'tăng'} dần`}>Học sinh <span aria-hidden>{sortingByName ? sort === 'name' ? '↑' : '↓' : ''}</span></button>
           </th>
           <th scope="col" aria-sort={!sortingByName ? sort === 'points_desc' ? 'descending' : 'ascending' : 'none'} className="w-20 p-0 text-right font-medium sm:w-28">
             <button type="button" onClick={() => changeSort('points')} className={`flex min-h-11 w-full items-center justify-end gap-1 px-2 text-right transition-colors hover:bg-card-hover hover:text-brand-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand-primary sm:px-4 ${!sortingByName ? 'font-semibold text-text-primary' : ''}`} aria-label={`Sắp xếp theo điểm ${sort === 'points_desc' ? 'tăng' : 'giảm'} dần`}>Điểm <span aria-hidden>{!sortingByName ? sort === 'points_desc' ? '↓' : '↑' : ''}</span></button>
@@ -130,7 +162,7 @@ export function StudentsPage() {
         </tr></thead>
         <tbody className="divide-y divide-border">
           {visibleStudents.map(student => <tr key={student.user_id} className={`hover:bg-card-hover ${starredSet.has(student.user_id) ? 'bg-card-subtle/40' : ''}`}>
-            <td className="px-1 text-center"><button type="button" onClick={() => toggleStar(student.user_id)} aria-pressed={starredSet.has(student.user_id)} aria-label={`${starredSet.has(student.user_id) ? 'Bỏ sao' : 'Đánh dấu sao'} ${student.name}`} title={starredSet.has(student.user_id) ? 'Bỏ đánh dấu sao' : 'Đưa lên đầu trang'} className="inline-flex size-11 items-center justify-center rounded-sm text-text-secondary hover:text-amber-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary"><Star aria-hidden className={`size-4 ${starredSet.has(student.user_id) ? 'fill-amber-500 text-amber-600' : ''}`} /></button></td>
+            <td className="px-1 text-center"><button type="button" onClick={() => toggleStar(student.user_id, student.name)} aria-pressed={starredSet.has(student.user_id)} aria-label={`${starredSet.has(student.user_id) ? 'Bỏ sao' : 'Đánh dấu sao'} ${student.name}`} title={starredSet.has(student.user_id) ? 'Bỏ đánh dấu sao' : 'Đánh dấu để theo dõi nhanh'} className="inline-flex size-11 items-center justify-center rounded-sm text-text-secondary hover:text-amber-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary"><Star aria-hidden className={`size-4 ${starredSet.has(student.user_id) ? 'fill-amber-500 text-amber-600' : ''}`} /></button></td>
             <td className="px-1 text-center tabular-nums text-text-secondary">{sortingByName ? (data.page - 1) * data.page_size + data.items.findIndex(item => item.user_id === student.user_id) + 1 : student.rank ?? '—'}</td>
             <td className="py-1.5"><Link to={`/student/students/${student.user_id}`} state={{ from: returnTo }} aria-label={`Mở hồ sơ ${student.name}`} className="mx-auto flex size-11 items-center justify-center rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary"><StudentAvatar url={student.avatar_url} name={student.name} /></Link></td>
             <th scope="row" className="px-2 py-1.5 font-normal sm:pl-5 sm:pr-3">

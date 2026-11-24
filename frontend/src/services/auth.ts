@@ -44,12 +44,16 @@ function loginScreen() {
 }
 
 function endSession() {
+  // Only a session this tab actually had can "expire"; a first visit without a
+  // cookie is sent to /login by the router without the expiry notice.
+  const hadSession = account !== null;
   resetSession();
   queryClient.clear();
-  if (!loginScreen() && !navigating) {
+  if (hadSession && !loginScreen() && !navigating) {
     navigating = true;
     const next = window.location.pathname + window.location.search + window.location.hash;
-    window.location.replace(`/?${new URLSearchParams({ reason: 'session-expired', next })}`);
+    // Go straight to /login: '/' redirects into the app and would drop `reason` and `next`.
+    window.location.replace(`/login?${new URLSearchParams({ reason: 'session-expired', next })}`);
   }
 }
 

@@ -10,15 +10,13 @@ import { StudentsPage } from './pages/StudentsPage';
 import { TeacherHome } from './pages/TeacherHome';
 import { ContestsPage } from './pages/ContestsPage';
 import { ContestRoomPage } from './pages/ContestRoomPage';
-import { VirtualClassSessions } from './components/VirtualClassSessions';
 import { ClassStudentItemData } from './types';
 import { positiveId, studentUrl } from './lib/navigation';
-import { ClassContext, loadClass, loadContest, loadProfile, loadRoster, loadSession, routeRequest, SessionDetail } from './services/navigation';
+import { ClassContext, loadClass, loadContest, loadProfile, loadRoster, routeRequest } from './services/navigation';
 
 const StudentDashboard = lazy(() => import('./pages/StudentDashboard').then(module => ({ default: module.StudentDashboard })));
 const AdminDashboard = lazy(() => import('./pages/AdminDashboard').then(module => ({ default: module.AdminDashboard })));
 const SkillConfiguration = lazy(() => import('./pages/SkillConfiguration').then(module => ({ default: module.SkillConfiguration })));
-const VirtualClassLiveRoom = lazy(() => import('./pages/VirtualClassLiveRoom').then(module => ({ default: module.VirtualClassLiveRoom })));
 const pageLoading = <p role="status" className="p-5 text-sm text-text-secondary">Đang mở trang...</p>;
 
 function RouteError() {
@@ -37,7 +35,7 @@ function RouteError() {
       {status === 401 && <Link to={`/login?next=${encodeURIComponent(pathname)}`} className="skill-primary">Đăng nhập</Link>}
       {!unavailable && !forbidden && <button disabled={revalidator.state !== 'idle'} onClick={() => revalidator.revalidate()} className="min-h-11 px-4 rounded-md bg-brand-primary text-white">{revalidator.state !== 'idle' ? 'Đang thử lại...' : 'Thử lại'}</button>}
       <Link to={pathname.startsWith('/teacher') ? '/teacher/contests' : '/student/students'} className="min-h-11 px-4 inline-flex items-center rounded-md border border-border">Về danh sách</Link>
-      <Link to="/admin" className="min-h-11 px-3 inline-flex items-center underline">Về bảng điều khiển</Link>
+      <Link to="/teacher/home" className="min-h-11 px-3 inline-flex items-center underline">Về trang chủ</Link>
     </div>
   </section>;
 }
@@ -57,18 +55,6 @@ function StudentPage() {
   const currentStudent = data.students.find(student => student.user_id === data.id);
   return <Suspense fallback={pageLoading}><StudentDashboard key={data.id} studentId={data.id} studentName={data.name} avatarUrl={currentStudent?.avatar_url ?? null} /></Suspense>;
 }
-function SessionsPage() {
-  const data = useLoaderData() as ClassContext;
-  const [params] = useSearchParams();
-  const suffix = params.get('list') ? `?${new URLSearchParams({ list: params.get('list')! })}` : '';
-  return <VirtualClassSessions key={data.id} selectedOrgId={data.id} className={data.name} sessionHref={id => `/teacher/sessions/${id}${suffix}`} />;
-}
-function SessionPage() {
-  const data = useLoaderData() as SessionDetail;
-  const revalidator = useRevalidator();
-  return <Suspense fallback={pageLoading}><VirtualClassLiveRoom key={data.id} sessionId={data.id} sessionName={data.name} isActive={data.end_time === null} onSessionStopped={() => revalidator.revalidate()} /></Suspense>;
-}
-
 async function requireReadyAccount(request: Request): Promise<AuthAccount> {
   let account: AuthAccount;
   try {
@@ -114,7 +100,7 @@ export const router = createBrowserRouter([
       loader: ({ params, request }) => guardedRouteRequest(request, () => loadContest(positiveId(params.contestId), request.signal)),
       handle: { title: data => data?.title || 'Phòng cuộc thi' } satisfies PageHandle },
     { path: '/teacher/classes', loader: () => redirect('/teacher/contests') },
-    { path: '/student/classes', loader: () => redirect('/student/students'), element: <StudentsPage /> },
+    { path: '/student/classes', loader: () => redirect('/student/students') },
     { path: '/student/students', loader: studentsLoader, element: <StudentsPage />, errorElement: <RouteError />, handle: { title: 'Học sinh' } satisfies PageHandle },
     { path: '/student/classes/:classId/students', element: <RosterPage />, errorElement: <RouteError />,
       shouldRevalidate: ({ currentParams, nextParams, defaultShouldRevalidate, currentUrl, nextUrl }) => currentParams.classId !== nextParams.classId || (currentUrl.search === nextUrl.search && defaultShouldRevalidate),
@@ -137,12 +123,9 @@ export const router = createBrowserRouter([
         return { id, name: student.name, organization, students };
       }),
       handle: { title: data => data?.name || 'Học sinh' } satisfies PageHandle },
-    { path: '/teacher/classes/:classId/sessions', element: <SessionsPage />, errorElement: <RouteError />,
-      loader: ({ params, request }) => guardedRouteRequest(request, () => loadClass(positiveId(params.classId), request.signal)),
-      handle: { title: data => data?.name || 'Phiên học' } satisfies PageHandle },
-    { path: '/teacher/sessions/:sessionId', element: <SessionPage />, errorElement: <RouteError />,
-      loader: ({ params, request }) => guardedRouteRequest(request, () => loadSession(positiveId(params.sessionId), request.signal)),
-      handle: { title: data => data?.name || 'Phiên học' } satisfies PageHandle },
+    // Old session URLs: sessions are Source API contests now.
+    { path: '/teacher/classes/:classId/sessions', loader: () => redirect('/teacher/contests') },
+    { path: '/teacher/sessions/:sessionId', loader: () => redirect('/teacher/contests') },
     { path: '/admin', element: <Suspense fallback={pageLoading}><AdminDashboard /></Suspense>, errorElement: <RouteError />, handle: { title: 'Quản trị gắn tag' } satisfies PageHandle },
     { path: '/admin/skills', element: <Suspense fallback={pageLoading}><SkillConfiguration /></Suspense>, errorElement: <RouteError />, handle: { title: 'Cấu hình cây kỹ năng' } satisfies PageHandle },
     { path: '/admin/scoring', loader: () => redirect('/student/students') },

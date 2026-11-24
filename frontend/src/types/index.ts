@@ -77,6 +77,7 @@ export interface SkillTreeResponseData {
 export interface CodeDoctorDiagnosisData {
   error_category: string;
   origin: 'ai' | 'fallback' | 'verdict';
+  fallback_reason?: string | null;
   advice?: string;
   summary?: string;
   guiding_question?: string;
@@ -86,7 +87,7 @@ export interface CodeDoctorDiagnosisData {
 export interface SkillDefinition { id: string; title: string; description: string; parent_id: string | null }
 export interface SkillDocument { nodes: SkillDefinition[]; assignments: Record<string, string> }
 export interface SkillTag { id: number; key: string; title: string; problem_count: number }
-export interface SkillConfigState { revision: number; has_published: boolean; document: SkillDocument; tags: SkillTag[]; proposals: import('../services/skillConfig').SkillProposal[] }
+export interface SkillConfigState { revision: number; has_published: boolean; document: SkillDocument; tags: SkillTag[]; proposals: import('../services/skillConfig').SkillProposal[]; stale_tag_ids?: number[] }
 export interface SkillForestNode {
   id: string; title: string; description: string; problem_count: number;
   ac_count: number; attempted_count: number; children: SkillForestNode[];
@@ -104,7 +105,62 @@ export interface CodeDoctorResponseData {
   user_id: number;
   problem_name: string;
   diagnosis: CodeDoctorDiagnosisData;
+  report?: DoctorReportData | null;
 }
+
+export type DoctorDirection = 'on_track' | 'partially' | 'off_track' | 'unknown';
+export type DoctorConfidence = 'high' | 'medium' | 'low';
+export type DoctorSeverity = 'high' | 'medium' | 'low';
+
+export interface DoctorFindingData {
+  point: string;
+  lines: number[];
+  severity?: DoctorSeverity | null;
+}
+
+export interface DoctorLogicErrorData {
+  lines: number[];
+  what: string;
+  why: string;
+  fix: string;
+  evidence: 'static' | 'reference_diff' | 'model';
+}
+
+export interface DoctorApproachInfoData {
+  approach_id?: number | null;
+  name: string;
+  status: string;
+  summary?: string | null;
+  time_complexity?: string | null;
+  member_count: number;
+  same_control_flow?: boolean | null;
+  repair_cost?: number | null;
+}
+
+export interface DoctorReportData {
+  version: string;
+  verdict: string;
+  origin: 'ai' | 'fallback' | 'verdict';
+  fallback_reason?: string | null;
+  overview: string;
+  direction: DoctorDirection;
+  estimated_complexity?: string | null;
+  expected_complexity?: string | null;
+  nearest_approach?: DoctorApproachInfoData | null;
+  best_approach?: DoctorApproachInfoData | null;
+  strengths: DoctorFindingData[];
+  weaknesses: DoctorFindingData[];
+  logic_errors: DoctorLogicErrorData[];
+  static_facts: { kind: 'info' | 'risk'; text: string; lines: number[] }[];
+  student_hints: string[];
+  confidence: DoctorConfidence;
+  limitations: string[];
+  tests: { passed?: number | null; total?: number | null; failed_cases: number[] };
+  model?: string | null;
+  generated_at?: string | null;
+}
+
+export type DoctorFeedbackRating = 'correct' | 'partial' | 'wrong';
 
 export type JobStatus = 'PENDING' | 'PROCESSING' | 'COMPLETED' | 'FAILED';
 
@@ -258,22 +314,43 @@ export interface TeacherContestData {
   is_public: boolean;
 }
 
+export interface ContestStudentData {
+  user_id: number;
+  name: string;
+  username: string;
+  avatar_url: string | null;
+  class_ids: number[];
+}
+
 export interface ContestLiveSubmissionData {
   id: number;
   user_id: number;
   user_name: string;
   problem_id: number;
+  problem_code?: string | null;
   problem_name: string;
   date: string;
   result: string;
   points: number;
+  /** Points on the contest's scale, when the source lists the contest problems. */
+  score?: number | null;
   time: number | null;
   memory: number | null;
   ai_flags: { has_error?: boolean; is_ai_generated?: boolean; is_copied?: boolean };
 }
 
+export interface SessionProblemData {
+  problem_id: number;
+  code: string;
+  title: string;
+  label: string;
+  /** Maximum points of the problem in this contest. */
+  points?: number | null;
+}
+
 export interface ContestLiveSubmissionsData {
   events: { kind: string; submission_id: number; record: ContestLiveSubmissionData | null }[];
+  problems?: SessionProblemData[];
   snapshot: boolean;
   is_active: boolean;
 }
@@ -288,6 +365,8 @@ export interface TeacherContestPageData {
 export interface ContestOrganizationData {
   id: number;
   name: string;
+  member_count?: number;
+  has_active_contest?: boolean;
 }
 
 export interface StudentSearchItemData {

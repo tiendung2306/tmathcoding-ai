@@ -53,6 +53,13 @@ mappings. The teacher dashboard contest listing and detail routes return all
 contests to authenticated callers, regardless of class, author, or visibility
 settings. Returned `class_ids` still include only classes in the caller's managed
 scope. The class-specific contest route retains its class access checks.
+`GET /contests/{id}/problems` returns the contest's problems from
+`judge_contestproblem` in contest `order` (then row id), with `code`, `title`,
+`order`, `points` (the contest's maximum), `partial` and `problem_points`
+(`judge_problem.points`, the scale of submission points). The dashboard uses it to
+label standings columns A, B, C…, to count only the contest's own problems and to
+convert submission points to the contest scale like the judge does; a provider
+without it may return `404`.
 The mock does not interpret `is_private` or `is_organization_private`; their
 production visibility semantics must be confirmed by the provider.
 `class_ids` only includes classes in the caller's accessible scope. Active state

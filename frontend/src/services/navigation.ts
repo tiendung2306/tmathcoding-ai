@@ -4,7 +4,6 @@ import { queryClient } from '../lib/queryClient';
 import { ClassStudentItemData, TeacherContestData } from '../types';
 import { fetchTeacherContest } from './api';
 export interface ClassContext { id: number; name: string }
-export interface SessionDetail { id: number; org_id: number; name: string; class_name: string; start_time: string; end_time: string | null }
 export async function loadContest(id: number, signal: AbortSignal): Promise<TeacherContestData> {
   signal.throwIfAborted();
   return queryClient.fetchQuery({
@@ -32,9 +31,6 @@ export async function loadProfile(id: number, signal: AbortSignal): Promise<{ id
     queryKey: ['student', id, 'profile'],
     queryFn: async () => (await apiClient.get<{ id: number; name: string }>(`/api/v1/teacher/students/${id}`, { timeout: 30_000 })).data,
   });
-}
-export async function loadSession(id: number, signal: AbortSignal): Promise<SessionDetail> {
-  return (await apiClient.get(`/api/v1/virtual-class/sessions/${id}`, { signal })).data;
 }
 export async function routeRequest<T>(request: () => Promise<T>): Promise<T> {
   try { return await request(); }

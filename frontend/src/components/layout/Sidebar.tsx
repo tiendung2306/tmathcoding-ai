@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { BarChart3, FileText, GraduationCap, Home, LogOut, ShieldCheck, Trophy, type LucideIcon } from 'lucide-react';
 import { Link, NavLink, useLocation } from 'react-router-dom';
 import { logout } from '../../services/auth';
@@ -84,6 +84,10 @@ function LogoutButton() {
 }
 
 export function Sidebar() {
+  const location = useLocation();
+  const mobileMenu = useRef<HTMLDetailsElement>(null);
+  // Collapse the phone menu after navigating so the new page is visible.
+  useEffect(() => { if (mobileMenu.current) mobileMenu.current.open = false; }, [location.pathname, location.search]);
   return <>
     <aside className="dashboard-sidebar" aria-label="Điều hướng chính">
       <nav className="dashboard-sidebar-nav">
@@ -93,7 +97,7 @@ export function Sidebar() {
         <LogoutButton />
       </div>
     </aside>
-    <details className="dashboard-mobile-menu">
+    <details ref={mobileMenu} className="dashboard-mobile-menu">
       <summary>Menu</summary>
       <nav aria-label="Điều hướng chính trên điện thoại">
         <PrimaryNavigation />

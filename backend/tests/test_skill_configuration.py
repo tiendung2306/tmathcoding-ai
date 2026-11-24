@@ -293,6 +293,21 @@ class StorageTests(unittest.IsolatedAsyncioTestCase):
             await service.write(self.dashboard, self.source, 0, altered, 7, actor_profile_id=7)
         self.assertEqual(caught.exception.status_code, 422)
 
+    async def test_student_views_ignore_tags_deleted_from_the_source(self):
+        altered = document().model_copy(deep=True)
+        altered.assignments[999] = "ds"
+        result = await service.preview(altered, self.source, 2, actor_profile_id=7)
+        expected = await service.preview(document(), self.source, 2, actor_profile_id=7)
+        self.assertEqual(result["roots"], expected["roots"])
+
+    async def test_configuration_state_reports_and_drops_stale_tags(self):
+        row = await service.configuration(self.dashboard)
+        row.draft = {**row.draft, "assignments": {**row.draft.get("assignments", {}), "999": "other"}}
+        await self.dashboard.commit()
+        result = await service.state(self.dashboard, self.source, actor_profile_id=7)
+        self.assertEqual(result["stale_tag_ids"], [999])
+        self.assertNotIn("999", result["document"]["assignments"])
+
     async def test_only_other_cannot_publish(self):
         row = await service.configuration(self.dashboard)
         with self.assertRaises(HTTPException) as caught:

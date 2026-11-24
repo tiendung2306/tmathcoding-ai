@@ -51,7 +51,7 @@ dashboard không đọc `MYSQL_*` hoặc `SOURCE_DB_*`.
 - Không tạo foreign key giữa Source API và dashboard. Lưu ID logic, kiểm tra
   ID/quyền qua Source API trước khi ghi dữ liệu vào dashboard. Lấy metadata theo
   nhóm ID để tránh một request cho từng bản ghi.
-- Phiên học (`tmath_virtual_class_session`) và kết quả AI (`judge_problem_ai_tag`)
+- Phiên học cũ (`tmath_virtual_class_session`, chỉ giữ dữ liệu; phiên học hiện lấy từ cuộc thi của Source API) và kết quả AI (`judge_problem_ai_tag`)
   thuộc dashboard. Đừng chuyển các model này trở lại metadata DB gốc.
 - Constraint/index dùng naming convention của `DashboardBase`: `pk_<table>`,
   `uq_<table>_<column>`, `ix_<table>_<column>`. Tên đặc biệt phải ghi rõ trong model
@@ -117,7 +117,7 @@ khởi động backend. Production nên dùng migration như một deployment jo
 
 ## Cấu hình cây kỹ năng
 
-Head hiện tại là `20261011_0002`. Revision `20261011_0001` tạo tài khoản admin và phiên đăng nhập trong dashboard DB; revision `20261011_0002` bỏ cờ đổi mật khẩu lần đầu. Các revision của cây kỹ năng:
+Head hiện tại là `20261125_0001`. Revision `20261011_0001` tạo tài khoản admin và phiên đăng nhập trong dashboard DB; revision `20261011_0002` bỏ cờ đổi mật khẩu lần đầu; `20261027_0001` thêm bảng điểm thành tích; `20261125_0001` thêm ngân hàng lời giải, báo cáo và đánh giá của Code Doctor ([docs/CODE_DOCTOR.md](../docs/CODE_DOCTOR.md)). Các revision của cây kỹ năng:
 
 | Revision | Thay đổi trong dashboard |
 | --- | --- |

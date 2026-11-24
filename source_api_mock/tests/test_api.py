@@ -10,7 +10,7 @@ from sqlalchemy.pool import StaticPool
 
 from source_api_mock.main import app, get_db
 from source_api_mock.models import (
-    contest, contest_author, contest_curator, contest_organization, metadata,
+    contest, contest_author, contest_curator, contest_organization, contest_problem, metadata,
     language, organization, organization_admin, problem, profile, profile_organization,
     problem_group, problem_type, problem_type_catalog, school_year, submission,
     submission_source, submission_testcase, user,
@@ -113,6 +113,10 @@ class SourceAPITest(unittest.TestCase):
                 {"contest_id": 103, "organization_id": 11},
                 {"contest_id": 103, "organization_id": 12},
                 {"contest_id": 104, "organization_id": 12},
+            ])
+            conn.execute(insert(contest_problem), [
+                {"id": 1, "contest_id": 101, "problem_id": 202, "order": 2, "points": 50, "partial": 0},
+                {"id": 2, "contest_id": 101, "problem_id": 201, "order": 1, "points": 100, "partial": 1},
             ])
             conn.execute(insert(contest_author), [{"contest_id": 105, "profile_id": 2}])
             conn.execute(insert(contest_curator), [{"contest_id": 106, "profile_id": 2}])
@@ -279,7 +283,9 @@ class SourceAPITest(unittest.TestCase):
         base = "/integration/v1/teachers/2/contests"
         active = self.client.get(base, params={"state": "active", "at": "2026-06-01T00:00:00Z"}, headers=self.headers())
         self.assertEqual(active.status_code, 200, active.text)
-        self.assertEqual({item["contest_id"] for item in active.json()["items"]}, {101, 106})
+        # The teacher listing returns every contest regardless of class or visibility
+        # (see README); class-specific routes keep their access checks below.
+        self.assertEqual({item["contest_id"] for item in active.json()["items"]}, {101, 104, 106})
         self.assertEqual(next(item for item in active.json()["items"] if item["contest_id"] == 101)["class_ids"], [11])
         active_public = next(item for item in active.json()["items"] if item["contest_id"] == 101)
         self.assertTrue(active_public["is_public"])
@@ -297,10 +303,22 @@ class SourceAPITest(unittest.TestCase):
         first_page = self.client.get(base, params={"state": "active", "at": "2026-06-01T00:00:00Z", "limit": 1}, headers=self.headers()).json()
         next_page = self.client.get(base, params={"state": "active", "at": "2026-06-01T00:00:00Z", "limit": 1,
                                                    "cursor": first_page["next_cursor"]}, headers=self.headers())
-        self.assertEqual(next_page.json()["items"][0]["contest_id"], 106)
+        # Newest start first; ties fall back to the higher contest id.
+        self.assertEqual(first_page["items"][0]["contest_id"], 106)
+        self.assertEqual(next_page.json()["items"][0]["contest_id"], 104)
         stale_scope = self.client.get(base, params={"state": "ended", "at": "2026-06-01T00:00:00Z", "limit": 1,
                                                     "cursor": first_page["next_cursor"]}, headers=self.headers())
         self.assertEqual(stale_scope.status_code, 409)
+
+    def test_contest_problems_follow_contest_order(self):
+        response = self.client.get("/integration/v1/contests/101/problems", headers=self.headers())
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual([(item["problem_id"], item["order"], item["code"]) for item in response.json()["items"]],
+                         [(201, 1, "P201"), (202, 2, "P202")])
+        self.assertEqual([(item["points"], item["problem_points"], item["partial"]) for item in response.json()["items"]],
+                         [(100, 100.0, True), (50, 50.0, False)])
+        self.assertEqual(self.client.get("/integration/v1/contests/999/problems", headers=self.headers()).status_code, 404)
+        self.assertEqual(self.client.get("/integration/v1/contests/102/problems", headers=self.headers()).json()["items"], [])
 
     def test_cursor_is_bound_to_filter_and_snapshot(self):
         path = "/integration/v1/teachers/2/classes/query"

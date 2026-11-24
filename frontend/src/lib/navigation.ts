@@ -16,7 +16,7 @@ export function rosterUrl(classId: number, list = '', roster = ''): string {
   return `/student/classes/${classId}/students${params.size ? `?${params}` : ''}`;
 }
 
-export function detailBackTarget(path: string, search: string, from?: unknown, sessionClassId?: number): string | null {
+export function detailBackTarget(path: string, search: string, from?: unknown): string | null {
   const params = new URLSearchParams(search);
   let fallback: string | null = null;
   if (/^\/student\/students\/\d+$/.test(path)) {
@@ -27,12 +27,6 @@ export function detailBackTarget(path: string, search: string, from?: unknown, s
   } else if (/^\/student\/classes\/\d+\/students$/.test(path)) {
     fallback = '/student/students';
   } else if (/^\/teacher\/contests\/\d+$/.test(path)) {
-    fallback = '/teacher/contests';
-  } else if (/^\/teacher\/sessions\/\d+$/.test(path)) {
-    fallback = sessionClassId && Number.isSafeInteger(sessionClassId) && sessionClassId > 0
-      ? `/teacher/classes/${sessionClassId}/sessions${params.get('list') ? `?${new URLSearchParams({ list: params.get('list')! })}` : ''}`
-      : '/teacher/contests';
-  } else if (/^\/teacher\/classes\/\d+\/sessions$/.test(path)) {
     fallback = '/teacher/contests';
   } else if (path === '/admin/skills') {
     fallback = '/admin';

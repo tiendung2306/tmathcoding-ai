@@ -8,7 +8,6 @@ from sqlalchemy import create_engine, insert
 from sqlalchemy.orm import Session
 
 from app.api.v1.endpoints.teacher import router
-from app.api.v1.endpoints.virtual_class import router as virtual_router
 from app.core.config import Settings
 from app.core.config_database import get_config_db
 from app.core.dashboard_database import get_dashboard_db
@@ -353,95 +352,14 @@ class TeacherOrganizationTests(unittest.IsolatedAsyncioTestCase):
             response = await client.get("/teacher/classes/1/students")
         self.assertEqual(response.status_code, 502)
 
-    async def test_virtual_class_lifecycle_uses_dashboard_and_live_reads_source(self):
-        app = FastAPI()
-        app.include_router(virtual_router, prefix="/virtual-class")
-        async def dashboard():
-            yield self.config_db
-        app.dependency_overrides[get_config_db] = dashboard
-        self.override_source_dependencies(app)
-        submission = SourceSubmission(
-            submission_id=41, profile_id=3, student_name="Alice", problem_id=7,
-            problem_title="Sum", result="AC", points=100,
-            submitted_at=datetime(2026, 10, 12, 0, 0),
-        )
-        page_calls = []
-        async def class_submissions(class_id, *, actor_profile_id, date_from=None, date_to=None,
-                                   after_submission_id=None, cursor=None, limit=100):
-            page_calls.append((class_id, actor_profile_id, cursor))
-            if cursor is None:
-                first_page = [submission.model_copy(update={"submission_id": 1000 + i}) for i in range(100)]
-                return SourceSubmissionPage(items=first_page, next_cursor="page-2", has_more=True,
-                    total=101, high_watermark="opaque-hwm", max_submission_id=1099,
-                    as_of=datetime(2026, 10, 12))
-            return SourceSubmissionPage(items=[submission], next_cursor=None, has_more=False,
-                total=101, high_watermark="opaque-hwm", max_submission_id=1099,
-                as_of=datetime(2026, 10, 12))
-        changes_calls = []
-        async def changes(class_id, *, actor_profile_id, cursor=None, date_from=None, date_to=None, limit=100):
-            changes_calls.append((class_id, actor_profile_id, cursor))
-            return SourceSubmissionChangesPage(events=[
-                SourceSubmissionChange(event_id=1, kind="updated", submission_id=41,
-                    version=2, changed_at=datetime(2026, 10, 12, 0, 1), record=submission.model_copy(update={"result": "WA"})),
-                SourceSubmissionChange(event_id=2, kind="deleted", submission_id=40,
-                    version=3, changed_at=datetime(2026, 10, 12, 0, 2), record=None),
-                SourceSubmissionChange(event_id=3, kind="created", submission_id=42,
-                    version=1, changed_at=datetime(2026, 10, 12, 0, 3),
-                    record=submission.model_copy(update={"submission_id": 42, "result": "TLE"})),
-            ], next_cursor="opaque-next", has_more=False, high_watermark=2,
-                as_of=datetime(2026, 10, 12, 0, 2))
-        self.gateway.list_class_submissions = class_submissions
-        self.gateway.list_class_submission_changes = changes
-        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
-            self.assertEqual((await client.post("/virtual-class/999/start")).status_code, 404)
-            response = await client.post("/virtual-class/130/start", params={"name": "Test session"})
-            self.assertEqual(response.status_code, 200)
-            session_id = response.json()["id"]
-            self.assertEqual((await client.post("/virtual-class/130/start")).status_code, 400)
-            listing = (await client.get("/virtual-class/130/sessions")).json()
-            self.assertEqual(listing["active_session"]["id"], session_id)
-            live = await client.get(f"/virtual-class/sessions/{session_id}/live-submissions")
-            self.assertEqual(live.status_code, 200)
-            self.assertEqual(len(live.json()["events"]), 101)
-            self.assertEqual(live.json()["events"][-1]["record"]["id"], 41)
-            self.assertTrue(live.json()["snapshot"])
-            self.assertEqual(live.json()["cursor"], "opaque-hwm")
-            self.assertTrue(live.json()['is_active'])
-            changes_response = await client.get(
-                f"/virtual-class/sessions/{session_id}/live-submissions", params={"cursor": "opaque-hwm"})
-            self.assertEqual(changes_response.status_code, 200)
-            self.assertEqual([event["kind"] for event in changes_response.json()["events"]], ["updated", "deleted", "created"])
-            self.assertEqual(changes_response.json()["events"][0]["record"]["result"], "WA")
-            self.assertIsNone(changes_response.json()["events"][1]["record"])
-            self.assertEqual(changes_response.json()["events"][2]["record"]["id"], 42)
-            self.assertEqual(changes_response.json()["cursor"], "opaque-next")
-            self.assertEqual(page_calls, [(130, 2, None), (130, 2, "page-2")])
-            self.assertEqual(changes_calls, [(130, 2, "opaque-hwm")])
-            self.actor = SourceAccess(profile_id=4, exists=True, is_active=True, is_super_admin=False)
-            denied_poll = await client.get(
-                f"/virtual-class/sessions/{session_id}/live-submissions", params={"cursor": "opaque-next"})
-            self.assertEqual(denied_poll.status_code, 404)
-            self.assertEqual((await client.post(f"/virtual-class/sessions/{session_id}/stop")).status_code, 404)
-            self.assertIsNone(self.config_session.get(VirtualClassSession, session_id).end_time)
-            self.actor = SourceAccess(profile_id=2, exists=True, is_active=True, is_super_admin=True)
-            for _ in range(2):
-                response = await client.post(f"/virtual-class/sessions/{session_id}/stop")
-                self.assertEqual(response.status_code, 200)
-                self.assertIsNotNone(response.json()["end_time"])
-            live = await client.get(f"/virtual-class/sessions/{session_id}/live-submissions")
-            self.assertFalse(live.json()['is_active'])
-        self.assertNotIn(VirtualClassSession.__tablename__, JudgeOrganization.metadata.tables)
-
-    async def test_direct_class_and_session_urls_enforce_class_visibility(self):
+    async def test_direct_class_urls_enforce_class_visibility(self):
         app = FastAPI()
         app.include_router(router, prefix="/teacher")
-        app.include_router(virtual_router, prefix="/virtual-class")
 
         async def dashboard():
             yield self.config_db
         app.dependency_overrides[get_config_db] = dashboard
         self.override_source_dependencies(app)
-        session = self.config_session.query(VirtualClassSession).filter_by(org_id=11).first()
         async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
             response = await client.get('/teacher/classes/1', params={'teacher_id': 3})
             self.assertEqual(response.status_code, 200)
@@ -456,17 +374,10 @@ class TeacherOrganizationTests(unittest.IsolatedAsyncioTestCase):
             response = await client.get('/teacher/students/search', params={'q': 'khong-khop-ten'})
             self.assertEqual(response.status_code, 200)
             self.assertEqual(response.json(), [])
-            response = await client.get(f'/virtual-class/sessions/{session.id}')
-            self.assertEqual(response.status_code, 200)
-            self.assertEqual(response.json()['class_name'], 'Lớp 011')
-            self.assertEqual(response.json()['org_id'], 11)
-            self.assertIsNotNone(response.json()['end_time'])
-            self.assertEqual((await client.get('/virtual-class/sessions/999')).status_code, 404)
             self.actor = SourceAccess(profile_id=3, exists=True, is_active=True, is_super_admin=False)
             self.assertEqual((await client.get('/teacher/classes/1')).status_code, 200)
             self.assertEqual(self.gateway.observed_actors[-1], 3)
             self.assertEqual((await client.get('/teacher/classes/2')).status_code, 404)
-            self.assertEqual((await client.get(f'/virtual-class/sessions/{session.id}')).status_code, 404)
 
     def test_config_database_name_is_safe_and_separate(self):
         values = dict(PROJECT_NAME="test", DASHBOARD_DB_HOST="dashboard",

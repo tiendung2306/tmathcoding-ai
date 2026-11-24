@@ -6,3 +6,4 @@ from app.models.virtual_class import VirtualClassSession
 from app.models.skill_config import SkillConfiguration, SkillConfigurationVersion
 from app.models.auth import DashboardAccount, DashboardAuthSession
 from app.models.scoring import ScoringState, ScoringRun, ScoringItem, ScoringProfile, ScoringPair
+from app.models.code_doctor import DoctorSolutionApproach, DoctorSolutionMember, DoctorReport, DoctorFeedback

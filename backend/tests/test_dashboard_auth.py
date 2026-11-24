@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 
 from app.api.v1.endpoints import auth as auth_endpoint
 from app.core.config import settings
+from app.core.auth import get_current_user
 from app.core.dashboard_auth import require_admin, password_hasher
 from app.core.dashboard_database import get_dashboard_db
 from app.services.source_gateway import SourceAccess, get_source_gateway
@@ -54,6 +55,7 @@ class FakeSourceGateway:
         self.admin_super_admin = True
 
     async def get_access(self, profile_id, *, actor_profile_id):
+        self.access_calls = getattr(self, "access_calls", 0) + 1
         return SourceAccess(
             profile_id=profile_id, exists=True, is_active=self.admin_active,
             is_super_admin=self.admin_super_admin, roles=["admin"],
@@ -80,6 +82,10 @@ class DashboardAuthTests(unittest.IsolatedAsyncioTestCase):
         @self.app.get("/protected")
         async def protected(_=Depends(require_admin)):
             return {"ok": True}
+
+        @self.app.get("/protected-profile", dependencies=[Depends(require_admin)])
+        async def protected_profile(profile=Depends(get_current_user)):
+            return {"profile_id": profile.profile_id}
 
         async def dashboard():
             yield self.db
@@ -161,3 +167,29 @@ class DashboardAuthTests(unittest.IsolatedAsyncioTestCase):
             response = await client.get("/protected")
             self.assertEqual(response.status_code, 403)
             self.assertNotIn("X-Auth-Error", response.headers)
+
+    async def test_access_is_checked_once_per_request(self):
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=self.app), base_url="http://test") as client:
+            await client.post("/auth/login", json={"username": "admin", "password": "test-only-password"})
+            self.source_api.access_calls = 0
+            self.assertEqual((await client.get("/protected-profile")).status_code, 200)
+            self.assertEqual(self.source_api.access_calls, 1)
+            self.assertEqual((await client.get("/protected-profile")).status_code, 200)
+            self.assertEqual(self.source_api.access_calls, 2)
+
+    async def test_optional_cross_request_cache_reuses_granted_access(self):
+        with patch.object(settings, "SOURCE_ACCESS_CACHE_SECONDS", 10):
+            async with httpx.AsyncClient(transport=httpx.ASGITransport(app=self.app), base_url="http://test") as client:
+                await client.post("/auth/login", json={"username": "admin", "password": "test-only-password"})
+                self.source_api.access_calls = 0
+                for _ in range(3):
+                    self.assertEqual((await client.get("/protected-profile")).status_code, 200)
+                self.assertEqual(self.source_api.access_calls, 1)
+
+    async def test_revocation_applies_when_cross_request_cache_is_disabled(self):
+        with patch.object(settings, "SOURCE_ACCESS_CACHE_SECONDS", 0):
+            async with httpx.AsyncClient(transport=httpx.ASGITransport(app=self.app), base_url="http://test") as client:
+                await client.post("/auth/login", json={"username": "admin", "password": "test-only-password"})
+                self.assertEqual((await client.get("/protected")).status_code, 200)
+                self.source_api.admin_super_admin = False
+                self.assertEqual((await client.get("/protected")).status_code, 403)

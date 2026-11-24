@@ -1,3 +1,5 @@
+import asyncio
+
 from fastapi import APIRouter, Depends, Query, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.dashboard_database import get_dashboard_db
@@ -8,6 +10,7 @@ from app.schemas.teacher import (
     ClassHeatmapResponse,
     StudentDetailResponse,
     ClassStudentItem,
+    ContestStudentItem,
 )
 from app.schemas.analytics import StudentTagAnalyticsResponse
 from app.services.tag_analytics_service import tag_analytics_service
@@ -19,8 +22,11 @@ from app.services.contest_access import get_visible_contest
 from app.services.class_student_service import get_class_students as load_class_students
 from app.services.source_gateway import SourceContest, SourceContestPage, SourceGateway, get_source_gateway
 from app.core.auth import get_current_user
+from app.core.request_cache import cached_call
 
 router = APIRouter()
+# Identical heavy reads within this window share one Source API computation.
+HEAVY_READ_TTL_SECONDS = 15
 
 
 def _target_profile_id(requested: int | None, actor) -> int:
@@ -58,7 +64,9 @@ async def get_contest_organizations(
             limit=100, sort="name", order="asc",
             virtual_active_class_ids=[], starred_class_ids=[],
         )
-        items.extend(ContestOrganization(id=item.class_id, name=item.name or f"Lớp {item.class_id}")
+        items.extend(ContestOrganization(id=item.class_id, name=item.name or f"Lớp {item.class_id}",
+                                         member_count=item.member_count,
+                                         has_active_contest=item.has_active_contest)
                      for item in page.items)
         if not page.has_more:
             return items
@@ -71,7 +79,7 @@ async def get_contest_organizations(
 @router.get("/my-contests", response_model=SourceContestPage)
 async def get_teacher_contests(
     teacher_id: int | None = Query(None, ge=1),
-    state: str = Query("all", pattern="^(active|ended|all)$"),
+    state: str = Query("all", pattern="^(active|upcoming|ended|all)$"),
     q: str = Query("", max_length=128),
     cursor: str | None = Query(None),
     limit: int = Query(24, ge=1, le=100),
@@ -92,6 +100,33 @@ async def get_teacher_contest(
     actor=Depends(get_current_user),
 ):
     return await get_visible_contest(source, contest_id, actor.profile_id)
+
+@router.get("/my-contests/{contest_id}/students", response_model=list[ContestStudentItem])
+async def get_contest_students(
+    contest_id: int,
+    class_id: int | None = Query(None, ge=1),
+    source: SourceGateway = Depends(get_source_gateway),
+    actor=Depends(get_current_user),
+):
+    """Students of a session's classes, including those who have not submitted yet."""
+    from app.api.v1.endpoints.virtual_class import contest_class_scope
+    contest = await get_visible_contest(source, contest_id, actor.profile_id)
+    class_ids = contest_class_scope(contest, class_id)
+    rosters = await asyncio.gather(*(load_class_students(source, item, actor.profile_id) for item in class_ids))
+    students: dict[int, ContestStudentItem] = {}
+    for roster_class_id, roster in zip(class_ids, rosters):
+        for student in roster:
+            entry = students.get(student.profile_id)
+            if entry is None:
+                entry = students[student.profile_id] = ContestStudentItem(
+                    user_id=student.profile_id,
+                    name=student.name or f"Học sinh #{student.profile_id}",
+                    username=student.username or f"user_{student.profile_id}",
+                    avatar_url=student.avatar_url,
+                )
+            entry.class_ids.append(roster_class_id)
+    return sorted(students.values(), key=lambda item: item.name.casefold())
+
 
 @router.get("/my-students", response_model=StudentPage)
 async def get_teacher_students(
@@ -158,8 +193,11 @@ async def get_class_heatmap(
     dashboard_db: AsyncSession = Depends(get_dashboard_db)
 ):
     """F2.1: Heatmap 2D năng lực lớp học theo 8 chuyên đề thuật toán cốt lõi."""
-    return await algorithm_competency_service.get_class_competency_heatmap(
-        org_id, time_range, source, dashboard_db, actor_profile_id=actor.profile_id,
+    return await cached_call(
+        ("class-heatmap", actor.profile_id, org_id, time_range), HEAVY_READ_TTL_SECONDS,
+        lambda: algorithm_competency_service.get_class_competency_heatmap(
+            org_id, time_range, source, dashboard_db, actor_profile_id=actor.profile_id,
+        ),
     )
 
 @router.get("/students/{student_id}/detail", response_model=StudentDetailResponse)
@@ -171,8 +209,12 @@ async def get_student_detail(
     dashboard_db: AsyncSession = Depends(get_dashboard_db)
 ):
     """F2.2: Xem chi tiết học sinh: profile, lớp học, năng lực 8 chuyên đề thuật toán, cảnh báo, thống kê."""
-    result = await heatmap_service.get_student_detail(
-        student_id, source, time_range=time_range, dashboard_db=dashboard_db, actor_profile_id=actor.profile_id,
+    result = await cached_call(
+        ("student-detail", actor.profile_id, student_id, time_range), HEAVY_READ_TTL_SECONDS,
+        lambda: heatmap_service.get_student_detail(
+            student_id, source, time_range=time_range, dashboard_db=dashboard_db,
+            actor_profile_id=actor.profile_id,
+        ),
     )
     if actor.is_super_admin:
         from app.scoring.service import overlay_scores

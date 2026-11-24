@@ -56,6 +56,12 @@ problem = Table(
     Column("is_organization_private", SmallInteger), Column("classes_id", Integer),
     Column("group_id", Integer), Column("version_update", Integer),
 )
+contest_problem = Table(
+    "judge_contestproblem", metadata,
+    Column("id", Integer, primary_key=True), Column("contest_id", Integer),
+    Column("problem_id", Integer), Column("order", Integer), Column("points", Integer),
+    Column("partial", SmallInteger),
+)
 problem_type_catalog = Table(
     "judge_problemtype", metadata,
     Column("id", Integer, primary_key=True), Column("name", String),

@@ -393,6 +393,22 @@ class ContestItem(BaseModel):
     version: int | str | None = None
 
 
+class ContestProblem(BaseModel):
+    problem_id: int
+    code: str
+    title: str
+    order: int
+    points: float | None = None
+    # judge_problem.points: submission points are on this scale.
+    problem_points: float | None = None
+    partial: bool = True
+
+
+class ContestProblemList(BaseModel):
+    items: list[ContestProblem]
+    as_of: datetime
+
+
 class ContestPage(BaseModel):
     items: list[ContestItem]
     next_cursor: str | None = None

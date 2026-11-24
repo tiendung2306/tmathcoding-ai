@@ -1,8 +1,9 @@
-from fastapi import Depends, HTTPException, status
-from app.core.dashboard_auth import require_account
+from fastapi import Depends, HTTPException, Request, status
+from app.core.dashboard_auth import require_account, source_access
 from app.services.source_gateway import SourceAccess, SourceGateway, get_source_gateway
 
 async def get_current_user(
+    request: Request,
     account=Depends(require_account),
     source: SourceGateway = Depends(get_source_gateway),
 ) -> SourceAccess:
@@ -11,7 +12,7 @@ async def get_current_user(
     if target_id is None:
         raise HTTPException(status_code=403, detail="Tài khoản chưa gắn với hồ sơ nguồn.")
 
-    profile = await source.get_access(target_id, actor_profile_id=target_id)
+    profile = await source_access(request, source, target_id)
     if not profile.exists or not profile.is_active:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,

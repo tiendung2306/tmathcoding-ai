@@ -110,6 +110,25 @@ class SourceContest(BaseModel):
     updated_at: datetime | None = None
 
 
+class SourceContestProblem(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    problem_id: int
+    code: str
+    title: str
+    order: int
+    points: float | None = None
+    problem_points: float | None = None
+    partial: bool = True
+
+
+class SourceContestProblemList(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    items: list[SourceContestProblem]
+    as_of: datetime | None = None
+
+
 class SourceContestPage(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
@@ -462,6 +481,7 @@ class SourceGateway(Protocol):
     async def get_teacher_contest(self, profile_id: int, contest_id: int, *, actor_profile_id: int) -> SourceContest: ...
     async def list_class_contests(self, class_id: int, *, actor_profile_id: int, state: str,
                                   at: datetime | None, cursor: str | None, limit: int) -> SourceContestPage: ...
+    async def list_contest_problems(self, contest_id: int, *, actor_profile_id: int) -> SourceContestProblemList: ...
     async def list_student_submissions(self, profile_id: int, *, actor_profile_id: int,
                                       date_from: datetime | None, date_to: datetime | None,
                                       result: str | None, only_with_source: bool | None,
@@ -687,6 +707,10 @@ class HttpSourceGateway:
         raw = await self._request("GET", f"classes/{class_id}/contests", actor_profile_id=actor_profile_id,
                                   params={key: value for key, value in params.items() if value is not None})
         return _validate_source_response(SourceContestPage, raw)
+
+    async def list_contest_problems(self, contest_id: int, *, actor_profile_id: int) -> SourceContestProblemList:
+        raw = await self._request("GET", f"contests/{contest_id}/problems", actor_profile_id=actor_profile_id)
+        return _validate_source_response(SourceContestProblemList, raw)
 
     async def list_student_submissions(self, profile_id: int, *, actor_profile_id: int,
                                        date_from: datetime | None = None, date_to: datetime | None = None,

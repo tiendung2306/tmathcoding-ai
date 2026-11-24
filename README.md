@@ -27,15 +27,17 @@ trong tab mới hoạt động theo URL.
 
 | Địa chỉ | Màn hình |
 | --- | --- |
-| `/` | Đăng nhập admin |
-| `/login` | Chuyển về `/`, giữ liên kết cũ hoạt động |
-| `/settings` | Chuyển về `/student/classes` từ liên kết cũ |
-| `/student/classes` | Danh sách lớp |
-| `/student/classes/:classId/students` | Học sinh trong lớp |
+| `/` | Chuyển đến `/teacher/home` (chưa đăng nhập thì sang `/login`) |
+| `/login` | Đăng nhập admin |
+| `/teacher/home` | Trang chủ: cuộc thi đang/sắp diễn ra, tìm học sinh |
+| `/settings` | Chuyển về `/student/students` từ liên kết cũ |
+| `/student/students` | Xếp hạng và tìm kiếm học sinh |
 | `/student/students/:studentId` | Thống kê học sinh |
-| `/teacher/classes` | Danh sách lớp giáo viên |
-| `/teacher/classes/:classId/sessions` | Phiên học của lớp |
-| `/teacher/sessions/:sessionId` | Theo dõi hoặc xem lại phiên học |
+| `/student/classes/:classId/students` | Học sinh trong lớp |
+| `/student/classes`, `/teacher/classes` | Liên kết cũ, chuyển về danh sách học sinh / cuộc thi |
+| `/teacher/classes/:classId/sessions`, `/teacher/sessions/:sessionId` | Liên kết cũ, chuyển về `/teacher/contests` |
+| `/teacher/contests` | Cuộc thi đang, sắp diễn ra và đã qua |
+| `/teacher/contests/:contestId` | Phòng cuộc thi: bảng xếp hạng theo bài (A, B, C…) và bài nộp; `?tab=submissions` mở danh sách bài nộp |
 | `/admin` | Quản trị dashboard |
 | `/admin/skills` | Cấu hình cây kỹ năng và phân loại tag |
 
@@ -48,9 +50,25 @@ frontend chưa khớp file. Các đường dẫn `/api/` phải proxy đến bac
 tĩnh phải được phục vụ như file, không trả HTML thay cho file bị thiếu. Vite dev
 server hiện hỗ trợ tải lại các địa chỉ frontend trực tiếp.
 
+Image production của frontend đã làm sẵn việc trên bằng nginx
+(`frontend/nginx.conf.template`):
+
+```sh
+docker build --target prod -t tmath-frontend ./frontend
+docker run -e BACKEND_URL=http://backend:8000 -p 8080:80 tmath-frontend
+```
+
+Image backend mặc định chạy không có `--reload`; `docker-compose.yml` bật lại
+`--reload` cho môi trường phát triển. Sau reverse proxy, đặt
+`FORWARDED_ALLOW_IPS` bằng IP của proxy để giới hạn đăng nhập thấy IP thật của
+người dùng. `SOURCE_ACCESS_CACHE_SECONDS` (mặc định `0`) cho phép dùng lại kết quả
+kiểm tra quyền admin nguồn trong vài giây; để `0` nếu cần thu hồi quyền ngay.
+Redis, MySQL dashboard và Ollama chỉ mở cổng trên `127.0.0.1`.
+
 Kiểm tra frontend trong thư mục `frontend`: `npm ci`, `npm test`, `npm run build`.
-Các route dữ liệu yêu cầu phiên admin từ backend. Trang `/` là màn đăng nhập;
-sau khi xác thực, admin vào `/student/classes` hoặc trang được yêu cầu trước đó.
+Các route dữ liệu yêu cầu phiên admin từ backend. Trang `/login` là màn đăng nhập;
+sau khi xác thực, admin vào `/teacher/home` hoặc trang được yêu cầu trước đó. Khi
+phiên hết hạn, người dùng được đưa về `/login` kèm địa chỉ đang xem để quay lại.
 
 TanStack Query quản lý các read của dashboard và ngữ cảnh lớp: cache 30 giây,
 nhận xét AI 5 phút, giữ cache không sử dụng tối đa 5 phút. Request cùng query key
@@ -79,7 +97,7 @@ với tài khoản này và cờ `super_admin` khi đọc API dashboard.
 Đọc [hướng dẫn cấu hình và thống kê bài AC](docs/SKILL_TREE_CONFIGURATION.md)
 và [bảng phân loại 99 tag](docs/SKILL_TAG_TAXONOMY_2026-10-04.md).
 Cấu hình nằm trong database dashboard. Triển khai toàn bộ chuỗi migration đến
-head `20261011_0002` trước khi chạy backend mới:
+head `20261125_0001` trước khi chạy backend mới:
 
 ```sh
 docker compose run --rm dashboard-migrate python -m app.db.migrate deploy
@@ -103,6 +121,31 @@ Migration giữ bản sao cấu hình trước khi chuyển sang gốc cố đ�
 trước DDL để operator bổ sung kế hoạch ánh xạ; không tự ép tag vào Khác.
 Frontend thêm thư viện kéo thả, modal/menu và hiển thị Markdown/công thức.
 Chạy `npm ci` hoặc rebuild container frontend khi lấy phiên bản mới.
+
+## Code Doctor
+
+Code Doctor nhận xét cho giảng viên về cả bài AC và bài lỗi: điểm mạnh, điểm yếu,
+lỗi logic theo dòng, đúng hướng hay chưa. Bài nộp được so với ngân hàng lời giải
+gom từ các bài AC theo phương pháp Clara; bài AC mới được thêm vào ngân hàng.
+Revision `20261125_0001` thêm các bảng `doctor_*`. Cấu hình model riêng bằng
+`DOCTOR_LLM_*`. Đọc [tài liệu Code Doctor](docs/CODE_DOCTOR.md).
+
+## Phiên học
+
+Phiên học là các cuộc thi lấy từ Source API, dashboard không tự tạo hay kết thúc
+phiên; giáo viên mở chúng ở mục **Cuộc thi**. Phòng cuộc thi hiển thị:
+
+- Bảng xếp hạng học sinh × bài theo thứ tự đề của cuộc thi (cột A, B, C…, lấy từ
+  `GET /contests/{id}/problems`, tức `judge_contestproblem`), gồm cả học sinh chưa
+  nộp; bấm ô để mở bài nộp gần nhất, bấm tên để xem mọi bài nộp của học sinh.
+- Bài nộp của học sinh thuộc các lớp của cuộc thi trong khung giờ thi, chỉ tính các
+  bài của đề khi nguồn trả danh sách bài; lọc theo kết quả và tìm theo tên.
+- Tự cập nhật mỗi 5 giây khi đang diễn ra, tự chuyển trạng thái khi cuộc thi bắt đầu.
+
+Provider chưa có `GET /contests/{id}/problems` (trả `404`) vẫn dùng được: dashboard
+tính mọi bài nộp trong khung giờ và lấy cột (vẫn đặt tên A, B, C…) từ các bài đã nộp. Bảng
+`tmath_virtual_class_session` của cách làm cũ (tự tạo phiên) được giữ nguyên để không
+mất dữ liệu nhưng không còn được dùng.
 
 ## Cấu trúc dự án
 
@@ -136,7 +179,7 @@ LLM_TEMPERATURE=0.2          # Độ sáng tạo (0.0: Chính xác/Phân tích c
 LLM_MAX_TOKENS=2048          # Số lượng token tối đa trong 1 câu trả lời
 LLM_TOP_P=0.95               # Nucleus sampling probability
 LLM_CONTEXT_WINDOW=8192      # Kích thước cửa sổ ngữ cảnh (Context Window / num_ctx)
-LLM_REQUEST_TIMEOUT_SECONDS=240 # Deadline mặc định; Code Doctor dùng 145s, auto-tag 240s
+LLM_REQUEST_TIMEOUT_SECONDS=240 # Deadline mặc định cho auto-tag; Code Doctor dùng DOCTOR_LLM_TIMEOUT_SECONDS
 ```
 
 ---

@@ -6,6 +6,7 @@ import type { StudentSubmissionHistoryItemData } from '../types';
 import { PaginationBar } from './PaginationBar';
 import { SubmissionDetailModal } from './SubmissionDetailModal';
 import { ErrorPanel } from './ErrorPanel';
+import { SubmissionRow } from './SubmissionRow';
 
 const dateFormatter = new Intl.DateTimeFormat('vi-VN', {
   day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit',
@@ -114,23 +115,11 @@ export function StudentSubmissionHistory({ studentId }: { studentId: number }) {
         <p className="text-sm font-medium text-text-primary">Chưa có bài nộp</p>
         <p className="mt-1 text-xs text-text-secondary">Lịch sử bài nộp của học sinh sẽ xuất hiện tại đây.</p>
       </div> : <div className="divide-y divide-border">
-        {history.data.items.map(item => {
-          const tone = resultTone(item.result || item.status);
-          return <button key={item.submission_id} type="button" onClick={() => openDetail(item.submission_id)} aria-label={`Xem bài nộp ${item.problem_name}, ${formatPoints(item.points)} điểm`} className="group flex w-full cursor-pointer items-center gap-3 p-3 text-left transition-colors hover:bg-card-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand-primary sm:gap-4 sm:px-5 sm:py-4">
-            <span role="img" aria-label={`${formatPoints(item.points)} điểm, ${item.result || item.status || 'chưa rõ kết quả'}`} className={`flex h-[4.75rem] w-[4.75rem] shrink-0 flex-col items-center justify-center rounded-xl text-center ${tone.tile}`}>
-              <strong className="max-w-full truncate px-1 text-base tabular-nums">{formatPoints(item.points)}</strong>
-              <span className="mt-1 max-w-full truncate px-1 text-[10px] font-semibold uppercase tracking-wide">{item.result || item.status || '—'}{item.language ? ` · ${item.language}` : ''}</span>
-            </span>
-            <span className="min-w-0 flex-1">
-              <span className="block max-w-full truncate text-sm font-semibold text-text-primary group-hover:text-brand-primary group-focus-visible:text-brand-primary sm:text-base">{item.problem_name}</span>
-              <time className="mt-1 block text-xs text-text-secondary" dateTime={item.date} title={formatDate(item.date)}>{formatRelativeDate(item.date)}</time>
-            </span>
-            <span className="hidden shrink-0 text-right text-xs tabular-nums text-text-secondary sm:block">
-              <strong className="block font-mono text-text-primary">{formatTime(item.time)}</strong>
-              <span className="mt-1 block">{formatMemory(item.memory)}</span>
-            </span>
-          </button>;
-        })}
+        {history.data.items.map(item => <SubmissionRow key={item.submission_id}
+          points={item.points} result={item.result || item.status} language={item.language}
+          name={item.problem_name}
+          meta={<time dateTime={item.date} title={formatDate(item.date)}>{formatRelativeDate(item.date)}</time>}
+          time={item.time} memory={item.memory} onOpen={() => openDetail(item.submission_id)} />)}
       </div>}
     </div>
 
@@ -155,15 +144,6 @@ export function StudentSubmissionHistory({ studentId }: { studentId: number }) {
   </section>;
 }
 
-function resultTone(result: string | null | undefined) {
-  switch ((result || '').toUpperCase()) {
-    case 'AC': return { tile: 'bg-emerald-500 text-white' };
-    case 'WA': case 'RTE': case 'CE': case 'OLE': return { tile: 'bg-red-500 text-white' };
-    case 'TLE': case 'MLE': case 'QU': return { tile: 'bg-amber-400 text-slate-900' };
-    default: return { tile: 'bg-card-subtle text-text-secondary' };
-  }
-}
-
 function formatDate(value: string) {
   const date = new Date(value);
   return Number.isNaN(date.getTime()) ? value : dateFormatter.format(date);
@@ -179,17 +159,4 @@ function formatRelativeDate(value: string) {
   const months = Math.floor(days / 30);
   if (months < 12) return `${months} tháng trước`;
   return `${Math.floor(months / 12)} năm trước`;
-}
-
-function formatPoints(value: number | null) {
-  if (value === null) return '—';
-  return new Intl.NumberFormat('vi-VN', { maximumFractionDigits: 2 }).format(value);
-}
-
-function formatTime(value: number | null) {
-  return value === null ? '—' : `${value.toFixed(3)} giây`;
-}
-
-function formatMemory(value: number | null) {
-  return value === null ? '—' : `${Math.round(value)} MB`;
 }

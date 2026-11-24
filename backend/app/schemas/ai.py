@@ -7,6 +7,7 @@ class CodeDoctorDiagnosis(BaseModel):
     summary: Optional[str] = Field(default=None, description="Tóm tắt ngắn gọn")
     guiding_question: Optional[str] = Field(default=None, description="Câu hỏi gợi mở (nếu có)")
     actionable_hint: Optional[str] = Field(default=None, description="Gợi ý hướng tiếp cận (nếu có)")
+    fallback_reason: Optional[str] = Field(default=None, description="Lý do không dùng được AI")
     origin: Literal["ai", "fallback", "verdict"] = Field(
         default="ai", description="Nguồn nhận xét: AI, hướng dẫn dự phòng, hoặc kết quả chấm"
     )
@@ -20,6 +21,7 @@ class CodeDoctorResponse(BaseModel):
     user_id: int
     problem_name: str
     diagnosis: CodeDoctorDiagnosis
+    report: Optional["DoctorReportData"] = None
 
 class AutoTagResult(BaseModel):
     problem_id: int
@@ -27,3 +29,8 @@ class AutoTagResult(BaseModel):
     secondary_tag_ids: List[int] = Field(default_factory=list)
     bloom_group_id: int = Field(description="Mức Bloom ID: 4(A), 5(B), 6(C), 7(D), 8(E), 13(F)")
     reasoning: str = Field(description="Lý do ngắn gọn dựa trên phân tích code AC mẫu và giới hạn input N")
+
+
+from app.schemas.code_doctor import DoctorReportData  # noqa: E402
+
+CodeDoctorResponse.model_rebuild()

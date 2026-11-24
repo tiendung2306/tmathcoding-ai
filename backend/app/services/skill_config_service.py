@@ -135,11 +135,33 @@ async def validate_document(document, source: SourceGateway, require_roots=False
         raise HTTPException(422, "Có tag không còn tồn tại trong dữ liệu nguồn. Hãy tải lại danh mục.")
 
 
+def without_stale_tags(document, tags):
+    """Drop assignments for tags the source no longer has.
+
+    Read views must keep working when the source deletes or merges a tag; the
+    administrator sees the stale IDs in the configuration screen and the next save
+    persists the cleaned document.
+    """
+    known = {tag["id"] for tag in tags}
+    stale = sorted(set(document.assignments) - known)
+    if not stale:
+        return document
+    logger.warning("Ignoring %d skill assignments for tags missing from the source: %s", len(stale), stale[:20])
+    return document.model_copy(update={"assignments": {
+        tag_id: node_id for tag_id, node_id in document.assignments.items() if tag_id in known}})
+
+
 async def state(dashboard, source: SourceGateway, *, actor_profile_id: int):
     row = await configuration(dashboard)
     tags, _pools, _version = await catalog(source, actor_profile_id, include_pools=False)
+    known = {tag["id"] for tag in tags}
+    assignments = row.draft.get("assignments", {})
+    stale = sorted(int(tag_id) for tag_id in assignments if int(tag_id) not in known)
+    document = {**row.draft, "assignments": {tag_id: node_id for tag_id, node_id in assignments.items()
+                                             if int(tag_id) in known}} if stale else row.draft
     return {"revision": row.revision, "has_published": row.published is not None,
-            "document": row.draft, "tags": tags, "proposals": visible_proposals(row)}
+            "document": document, "tags": tags, "proposals": visible_proposals(row),
+            "stale_tag_ids": stale}
 
 
 def visible_proposals(row):
@@ -337,8 +359,7 @@ async def preview(document, source: SourceGateway, user_id=None, cutoff=None,
             document.require_roots()
         except ValueError as exc:
             raise HTTPException(422, str(exc)) from exc
-    if set(document.assignments) - {tag["id"] for tag in tags}:
-        raise HTTPException(422, "Có tag không còn tồn tại trong dữ liệu nguồn. Hãy tải lại danh mục.")
+    document = without_stale_tags(document, tags)
     problems = {}
     fact_counts = None
     if user_id:

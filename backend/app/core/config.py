@@ -12,6 +12,9 @@ class Settings(BaseSettings):
     SOURCE_API_BASE_URL: str = ""
     SOURCE_API_TOKEN: str = ""
     SOURCE_API_TIMEOUT_SECONDS: float = Field(default=8.0, gt=0)
+    # Reuse a granted source admin check across requests for this long. 0 (default)
+    # re-checks every request so revocation is immediate; each request still checks once.
+    SOURCE_ACCESS_CACHE_SECONDS: float = Field(default=0.0, ge=0, le=300)
     
     # Dashboard-owned database. Source data is accessed only through SOURCE_API_*.
     DASHBOARD_DB_HOST: str
@@ -54,6 +57,16 @@ class Settings(BaseSettings):
     LLM_TOP_P: float = 0.95
     LLM_CONTEXT_WINDOW: int = 8192
     LLM_REQUEST_TIMEOUT_SECONDS: float = Field(default=240.0, gt=0, allow_inf_nan=False)
+
+    # Code Doctor may use a stronger model than auto-tag/commentary. Empty values
+    # inherit the LLM_* setting above, so existing deployments keep working.
+    DOCTOR_LLM_PROVIDER: str = ""
+    DOCTOR_LLM_BASE_URL: str = ""
+    DOCTOR_LLM_API_KEY: str = ""
+    DOCTOR_LLM_MODEL: str = ""
+    DOCTOR_LLM_CONTEXT_WINDOW: int = Field(default=0, ge=0)
+    DOCTOR_LLM_MAX_TOKENS: int = Field(default=1800, ge=256)
+    DOCTOR_LLM_TIMEOUT_SECONDS: float = Field(default=150.0, gt=0, allow_inf_nan=False)
     
     # CORS Origins
     CORS_ORIGINS: Union[List[str], str] = ["http://localhost:5173"]
